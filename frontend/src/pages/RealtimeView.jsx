@@ -14,6 +14,9 @@ function formatCurrency(value) {
 function RealtimeView() {
   const [status, setStatus] = useState("Desconectado 🔴");
   const [messages, setMessages] = useState([]);
+  const [selectedInvoices, setSelectedInvoices] = useState(null);
+  const [invoiceItems, setInvoicesItems] = useState([]);
+  const [loadingItems, setLoadingItems] = useState(false);
 
   useEffect(() => {
     fetch("http://127.0.0.1:8000/invoices/today")
@@ -31,11 +34,7 @@ function RealtimeView() {
       .then((data) =>   {
         console.log(" Facturas del día cargadas:", data.length);
         setMessages(data);
-        messagesRef.current = data;
          })
-         .catch((err) => console.error("error cargando facturas", err));
-
-
     const ws = new WebSocket("ws://127.0.0.1:8000/ws/FLO");
 
     ws.onopen = () => {
@@ -43,8 +42,6 @@ function RealtimeView() {
       console.log("✅ WebSocket conectado");
     };
 
-    // ref y throttle
-    let timeout;
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       console.log("📩 Mensaje recibido:", data);
@@ -77,6 +74,31 @@ function RealtimeView() {
 
     return () => ws.close();
   }, []);
+
+  async function handleInvoiceClick(invoice_number) {
+    if (selectedInvoices === invoice_number) {
+      setSelectedInvoices(null);
+      setInvoicesItems([]);
+      return;
+    }
+
+    setLoadingItems(true);
+    setSelectedInvoices(invoice_number);
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/invoices/${invoice_number}/items`);
+      const data = await res.json();
+      if (data.items) {
+        setInvoicesItems(data.items);
+      } else {
+        setInvoicesItems([]);
+      }
+    } catch (err) {
+      console.error("error cargando items", err);
+      setInvoicesItems([]);
+    } finally {
+      setLoadingItems(false);
+    }
+  }
 
   //  Cálculos en tiempo real (ventas totales, promedio, cantidad)
   const summary = useMemo(() => {
@@ -175,13 +197,17 @@ function RealtimeView() {
     {messages.map((msg, i) => (
       <li
         key={i}
+        onClick={() => handleInvoiceClick(msg.invoice_number)}
         style={{
           padding: "10px 14px",
           marginBottom: "4px",
           borderBottom: "1px solid #e0e0e0",
-          background: i % 2 === 0 ? "#fff" : "#f8f9fa",
-          borderRadius: "8px",
+          background:
+          selectedInvoices === msg.invoice_number ? "#e9f5ff" : i % 2 === 0 ? "#fff" : "#f8f9fa",
+          borderRadius: "6px",
+          cursor: "pointer",
           display: "flex",
+          transition: "background 0.2s",
           flexDirection: "column",
           justifyContent: "space-between",
         }}
@@ -246,6 +272,115 @@ function RealtimeView() {
         >
           Ítems: <strong>{msg.items}</strong>
         </div>
+
+        {/* items desplegables*/}
+        {selectedInvoices === msg.invoice_number && (
+          <div
+            style={{
+              marginTop: "8px",
+              paddingLeft: "10px",
+              fontSize: "0.95rem",
+              color: "#333",
+            }}
+          >
+            {loadingItems ? (
+              <em>Cargando items...</em>
+            ) : invoiceItems.length > 0 ? (
+              <div 
+                style={{
+                  marginTop: "8px",
+                  paddingLeft: "10px",
+                  fontSize: "0.95rem",
+                  color: "#333",
+                  overflow: "hidden",
+                  transition: "all 0.4s ease",
+                  opacity: selectedInvoices === msg.invoice_number ? 1 : 0,
+                  transform:
+                    selectedInvoices === msg.invoice_number
+                      ? "translateY(0px)"
+                      : "translateY()"
+                }}>
+              <ul style={{ listStyle: "none", paddingLeft: 0, marginTop: "6px" }} >
+                {/* Encabezados de las columnas */}
+                <li style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 70px 100px 110px",
+                  fontWeight: "600",
+                  color: "#444",
+                  borderBottom: "2px solid #ccc",
+                  paddingBottom: "6px",
+                  fontSize: "0.9rem",
+                }} 
+                >
+                  <span>Producto</span>
+                  <span style={{ textAlign: "right" }} >Cant.</span>
+                  <span style={{ textAlign: "right" }} >Unitario</span>
+                  <span style={{ textAlign: "right" }} >Subtotal</span>
+                </li>
+
+                {/* filas productos */}
+                {invoiceItems.map((it,idx) => (
+                  <li
+                    key={idx}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 70px 100px 110px",
+                      alignItems: "center",
+                      fontSize: "0.9rem",
+                      color: "#333",
+                      padding: "2px 0",
+                      borderBottom: "1px solid #eee",
+                    }}
+                  >
+                    <span style={{ paddingRight: "8px"}}> {it.description} </span>
+                    <span style={{ textAlign: "right", color: "#666"}} >
+                      {it.quantity.toFixed(2)}
+                    </span>
+                    <span style={{ textAlign: "right", color: "#666"}} >
+                      {formatCurrency(it.unit_price)}
+                    </span>
+                    <span
+                      style={{
+                        textAlign: "right",
+                        fontWeight: "600",
+                        color: "#007bff"
+                      }}
+                    >
+                      {formatCurrency(it.subtotal)}
+                    </span>
+                  </li>
+                ))}
+
+                {/* Total General */}
+                <li
+                  style={{
+                    marginTop: "6px",
+                    paddingTop: "6px",
+                    borderTop: "2px solid #ccc",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontWeight: "bold",
+                    color: "#222",
+                    fontSize: "1rem"
+                  }}
+                  >
+                    <span>Total items: {invoiceItems.length}</span>
+                    <span>
+                      Total factura:{" "}
+                      <span style={{color: "#007bff"}} >
+                        {formatCurrency(
+                          invoiceItems.reduce((sum, i) => sum + (i.subtotal || 0), 0)
+                        )}
+                      </span>
+                    </span>
+                  </li>
+              </ul>
+              </div>
+            ) : (
+              <em>Sin items</em>
+            )}
+          </div>
+        )}
       </li>
     ))}
   </ul>

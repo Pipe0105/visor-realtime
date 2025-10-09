@@ -87,3 +87,36 @@ def get_today_invoices(db: Session = Depends(get_db)):
         })
 
     return result
+
+@router.get("/{invoice_number}/items")
+def get_invoice_items(invoice_number: str, db: Session = Depends(get_db)):
+    try:
+        invoice = (
+            db.query(Invoice)
+            .options(joinedload(Invoice.items))
+            .filter(Invoice.number == invoice_number)
+            .first()
+        )
+
+        if not invoice:
+            return {"error": f"Factura '{invoice_number}' no encontrada"}
+
+        return {
+            "invoice_number": invoice.number,
+            "items": [
+                {
+                    "product_code": item.product_code,
+                    "description": item.description,
+                    "quantity": float(item.quantity) if item.quantity is not None else 0,
+                    "unit_price": float(item.unit_price) if item.unit_price is not None else 0,
+                    "subtotal": float(item.subtotal) if item.subtotal is not None else 0,
+                    "unit": item.unit if hasattr(item, "unit") else "",
+                }
+                for item in invoice.items
+            ]
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": f"Excepción interna: {type(e).__name__}: {e}"}
