@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
+from datetime import datetime, timedelta, date
 from app.database import get_db
 from app.models.invoice import Invoice
 from app.models.invoice_item import InvoiceItem
 from app.schemas.invoice_schema import InvoiceCreate
-from datetime import datetime, timedelta
-from sqlalchemy.orm import joinedload
 
 router = APIRouter()
 
@@ -63,10 +63,7 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
 
 @router.get("/today")
 def get_today_invoices(db: Session = Depends(get_db)):
-    """
-    Devuelve todas las facturas creadas el día actual (desde medianoche hasta ahora).
-    Esto sirve para que el visor cargue el historial diario al abrir.
-    """
+    # Devuelve todas las facturas creadas el día actual (desde medianoche hasta ahora).
     today = datetime.now().date()
     tomorrow = today + timedelta(days=1)
 
@@ -83,8 +80,9 @@ def get_today_invoices(db: Session = Depends(get_db)):
         result.append({
             "invoice_number": inv.number,
             "total": float(inv.total),
-            "items": len(inv.items) if hasattr(inv, "items") else 0,
+            "items": len(inv.items) if inv.items else 0,
             "timestamp": inv.created_at.isoformat(),
+            "invoice_date": inv.invoice_date,
             "branch": str(inv.branch_id) if inv.branch_id else "FLO",
         })
 

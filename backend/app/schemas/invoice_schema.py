@@ -19,4 +19,6 @@ class InvoiceCreate(BaseModel):
     discount: float
     total: float
     source_file: Optional[str]
+    invoice_date: Optional[datetime] = None
     items: List[InvoiceItemCreate] = []
+    

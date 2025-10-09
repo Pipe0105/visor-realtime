@@ -10,6 +10,7 @@ from app.models.invoice import Invoice
 from app.models.invoice_item import InvoiceItem
 from app.config import settings
 from app.services.realtime_manager import realtime_manager  # 👈 añadido
+from datetime import datetime
 
 # Ruta de solo lectura (desde .env o fija)
 NETWORK_PATH = getattr(settings, "INVOICE_PATH", r"\\192.168.32.100\prt")
@@ -35,6 +36,17 @@ def process_file(file_path: str):
         header = parsed["header"]
         items = parsed["items"]
         totals = parsed["totals"]
+        
+        raw_date = header.get("date")
+        invoice_date = None
+        if raw_date:
+            try:
+                invoice_date = datetime.strptime(raw_date, "%Y-%b-%d %I:%M %p")
+            except ValueError:
+                try:
+                    invoice_date = datetime.strptime(raw_date, "%Y-%b-%d")
+                except ValueError:
+                    print(f"no se pudo parsear la fecha '{raw_date}'")
     except Exception as e:
         print(f"⚠️ Error al parsear {file_path}: {e}")
         return
@@ -57,7 +69,8 @@ def process_file(file_path: str):
             vat=totals.get("iva", 0),
             discount=totals.get("discount", 0),
             total=totals.get("total", 0),
-            source_file=filename
+            source_file=filename,
+            invoice_date = invoice_date
         )
         db.add(invoice)
         db.commit()
@@ -85,7 +98,8 @@ def process_file(file_path: str):
             "invoice_number": header.get("number"),
             "items": len(items),
             "total": totals.get("total", 0),
-            "file": filename
+            "file": filename,
+            "invoice_date": invoice.invoice_date.isoformat() if invoice.invoice_date else None,
         }
 
         try:

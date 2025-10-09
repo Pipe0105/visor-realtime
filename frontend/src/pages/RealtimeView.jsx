@@ -31,7 +31,11 @@ function RealtimeView() {
       .then((data) =>   {
         console.log(" Facturas del día cargadas:", data.length);
         setMessages(data);
+        messagesRef.current = data;
          })
+         .catch((err) => console.error("error cargando facturas", err));
+
+
     const ws = new WebSocket("ws://127.0.0.1:8000/ws/FLO");
 
     ws.onopen = () => {
@@ -39,6 +43,8 @@ function RealtimeView() {
       console.log("✅ WebSocket conectado");
     };
 
+    // ref y throttle
+    let timeout;
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       console.log("📩 Mensaje recibido:", data);
@@ -159,33 +165,92 @@ function RealtimeView() {
         </div>
       </div>
 
-      {/*  Listado de facturas */}
-      <h2> Últimas facturas procesadas:</h2>
+{/*  Listado de facturas */}
+<h2> Últimas facturas procesadas:</h2>
 
-      {messages.length === 0 ? (
-        <p>No hay facturas nuevas todavía...</p>
-      ) : (
-        <ul style={{ listStyle: "none", paddingLeft: 0 }}>
-          {messages.map((msg, i) => (
-            <li
-              key={i}
-              style={{
-                padding: "8px 0",
-                borderBottom: "1px solid #ddd",
-                fontSize: "1.1rem",
-                background: i % 2 === 0 ? "#fff" : "#f4f4f4",
-                borderRadius: "6px",
-              }}
-            >
-              <strong>{msg.invoice_number}</strong> —{" "}
-              <span style={{ color: "#007bff" }}>
-                Total: {formatCurrency(msg.total)}
-              </span>{" "}
-              — Ítems: <strong>{msg.items}</strong>
-            </li>
-          ))}
-        </ul>
-      )}
+{messages.length === 0 ? (
+  <p>No hay facturas nuevas todavía...</p>
+) : (
+  <ul style={{ listStyle: "none", paddingLeft: 0 }}>
+    {messages.map((msg, i) => (
+      <li
+        key={i}
+        style={{
+          padding: "10px 14px",
+          marginBottom: "4px",
+          borderBottom: "1px solid #e0e0e0",
+          background: i % 2 === 0 ? "#fff" : "#f8f9fa",
+          borderRadius: "8px",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+        }}
+      >
+        {/* Primera línea: número, total y hora */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <span
+            style={{
+              fontWeight: "bold",
+              color: "#212529",
+              flex: "1",
+              minWidth: "90px",
+            }}
+          >
+            {msg.invoice_number}
+          </span>
+
+          <span
+            style={{
+              color: "#007bff",
+              fontWeight: "600",
+              flex: "1",
+              textAlign: "center",
+            }}
+          >
+            {formatCurrency(msg.total)}
+          </span>
+
+          <span
+            style={{
+              color: "#666",
+              fontSize: "0.95rem",
+              flex: "1",
+              textAlign: "right",
+              minWidth: "120px",
+            }}
+          >
+            {msg.invoice_date
+              ? new Date(msg.invoice_date).toLocaleString("es-CO", {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })
+              : ""}
+          </span>
+        </div>
+
+        {/* Segunda línea: ítems */}
+        <div
+          style={{
+            color: "#888",
+            fontSize: "0.9rem",
+            marginTop: "4px",
+            paddingLeft: "2px",
+          }}
+        >
+          Ítems: <strong>{msg.items}</strong>
+        </div>
+      </li>
+    ))}
+  </ul>
+)}
+
     </div>
   );
 }
