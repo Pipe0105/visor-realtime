@@ -1,0 +1,30 @@
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+env/
+venv/
+*.log
+
+# Node / React
+node_modules/
+dist/
+build/
+*.env
+.vscode/
+.idea/
+
+# Bases de datos locales
+*.db
+*.sqlite3
+
+# Archivos temporales
+*.bak
+*.tmp
+*.swp
