@@ -106,7 +106,6 @@ def get_today_invoices(
         .order_by(Invoice.created_at.desc())
         .offset(offset)
         .limit(limit)
-        .order_by(Invoice.created_at.desc())
         .all()
     )
 

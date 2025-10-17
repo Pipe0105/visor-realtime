@@ -20,7 +20,7 @@ function formatCurrency(value) {
   });
 }
 
-const PAGE_SIZE = 700;
+const PAGE_SIZE = 100;
 
 function toNumber(value) {
   const parsed = Number(value);
