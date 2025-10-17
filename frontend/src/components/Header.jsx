@@ -36,7 +36,7 @@ export default function Header({ onToggleTheme, theme }) {
                 Floresta
               </Badge>
             </div>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
               Monitor de facturación en vivo para sucursales Siesa
             </p>
           </div>
@@ -44,7 +44,7 @@ export default function Header({ onToggleTheme, theme }) {
 
         <div className="flex flex-wrap items-center justify-end gap-3 sm:flex-nowrap">
           <div className="text-right">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-600 dark:text-slate-400">
               Hora local
             </p>
             <p className="font-mono text-sm text-slate-600 dark:text-slate-300">
@@ -56,7 +56,7 @@ export default function Header({ onToggleTheme, theme }) {
             size="sm"
             onClick={onToggleTheme}
             aria-pressed={theme === "dark"}
-            className="rounded-full border-slate-300 bg-white/90 text-slate-600 shadow-none transition hover:bg-white dark:border-slate-700 dark:bg-slate-900/70 dark:text-foreground dark:hover:bg-slate-800/70"
+            className="rounded-full border-slate-300 bg-white text-slate-700 shadow-none transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-foreground dark:hover:bg-slate-800/70"
           >
             {theme === "dark" ? "☀️ Modo claro" : "🌙 Modo oscuro"}
           </Button>

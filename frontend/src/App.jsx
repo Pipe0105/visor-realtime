@@ -14,7 +14,7 @@ export default function App() {
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-white to-slate-200 text-foreground transition-colors duration-500 dark:from-slate-950 dark:via-slate-950 dark:to-black dark:text-foreground">
+    <div className="min-h-screen bg-gradient-to-br from-background via-gray-200 to-slate-200 text-foreground transition-colors duration-500 dark:from-slate-950 dark:via-slate-950 dark:to-black dark:text-foreground">
       {" "}
       <Header onToggleTheme={toggleTheme} theme={theme} />
       <main className="px-4 pb-16 pt-24 sm:px-6 lg:px-8">

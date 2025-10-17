@@ -229,7 +229,7 @@ function RealtimeView() {
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-foreground">
             Resumen de facturación diaria
           </h2>
-          <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-400">
+          <p className="max-w-2xl text-sm text-slate-700 dark:text-slate-400">
             Sigue la actividad comercial de la sede y consulta los detalles de
             cada factura sin perder de vista el panel principal.
           </p>
@@ -264,7 +264,8 @@ function RealtimeView() {
       </section>
 
       <section className="grid gap-6 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1fr)]">
-        <Card className="border border-slate-200/70 bg-white/90 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+        <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+          {" "}
           <CardHeader className="space-y-3 pb-5">
             <div className="space-y-1">
               <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
@@ -276,21 +277,23 @@ function RealtimeView() {
             </div>
             <Badge
               variant="outline"
-              className="w-fit rounded-full border-transparent bg-muted/60 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-slate-500 dark:bg-slate-800/60 dark:text-slate-300"
+              className="w-fit rounded-full border-transparent bg-muted px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300"
             >
               {invoicesCountLabel}
             </Badge>
           </CardHeader>
           <CardContent className="space-y-4">
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200/80 bg-white/70 px-6 py-12 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-6 py-12 text-center text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+                {" "}
                 <span className="text-4xl" aria-hidden="true">
                   🕓
                 </span>
                 <p className="text-sm font-medium">
                   Aún no hay facturas registradas hoy.
                 </p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  {" "}
                   En cuanto llegue la primera, aparecerá automáticamente en esta
                   lista.
                 </p>
@@ -312,7 +315,7 @@ function RealtimeView() {
                         onClick={() => handleInvoiceClick(msg.invoice_number)}
                         aria-pressed={isSelected}
                         className={cn(
-                          "group w-full rounded-xl border border-transparent bg-white/80 px-4 py-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-slate-900/60",
+                          "group w-full rounded-xl border border-transparent bg-white px-4 py-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-slate-900/60",
                           {
                             "border-primary/50 bg-primary/5 shadow-md dark:border-primary/60 dark:bg-primary/10":
                               isSelected,
@@ -321,7 +324,8 @@ function RealtimeView() {
                       >
                         <div className="flex flex-wrap items-center gap-4">
                           <div className="min-w-[7rem]">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400">
+                              {" "}
                               Factura
                             </p>
                             <p className="text-base font-semibold text-slate-900 dark:text-foreground">
@@ -329,7 +333,8 @@ function RealtimeView() {
                             </p>
                           </div>
                           <div className="ml-auto text-right">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400">
+                              {" "}
                               Total
                             </p>
                             <p className="text-lg font-semibold text-primary">
@@ -337,8 +342,9 @@ function RealtimeView() {
                             </p>
                           </div>
                         </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600 dark:bg-slate-800/70 dark:text-slate-300">
+                        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
+                            {" "}
                             <span
                               className="h-1.5 w-1.5 rounded-full bg-primary/60"
                               aria-hidden="true"
@@ -356,7 +362,8 @@ function RealtimeView() {
           </CardContent>
         </Card>
 
-        <Card className="border border-slate-200/70 bg-white/90 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+        <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+          {" "}
           <CardHeader className="space-y-2 pb-5">
             <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
               {selectedInvoiceData
@@ -373,24 +380,27 @@ function RealtimeView() {
             {selectedInvoiceData ? (
               <>
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl bg-muted/60 px-4 py-3 text-sm font-medium text-slate-600 dark:bg-slate-800/70 dark:text-slate-200">
-                    <span className="block text-xs uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
+                  <div className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+                    <span className="block text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-500">
+                      {" "}
                       Total
                     </span>
                     <span className="text-base font-semibold text-slate-900 dark:text-foreground">
                       {formatCurrency(detailComputedTotal)}
                     </span>
                   </div>
-                  <div className="rounded-xl bg-muted/60 px-4 py-3 text-sm font-medium text-slate-600 dark:bg-slate-800/70 dark:text-slate-200">
-                    <span className="block text-xs uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
+                  <div className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+                    <span className="block text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-500">
+                      {" "}
                       Ítems
                     </span>
                     <span className="text-base font-semibold text-slate-900 dark:text-foreground">
                       {detailItemsCount}
                     </span>
                   </div>
-                  <div className="rounded-xl bg-muted/60 px-4 py-3 text-sm font-medium text-slate-600 dark:bg-slate-800/70 dark:text-slate-200">
-                    <span className="block text-xs uppercase tracking-[0.24em] text-slate-400 dark:text-slate-500">
+                  <div className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+                    <span className="block text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-500">
+                      {" "}
                       Folio
                     </span>
                     <span className="text-base font-semibold text-slate-900 dark:text-foreground">
@@ -399,12 +409,14 @@ function RealtimeView() {
                   </div>
                 </div>
                 {loadingItems ? (
-                  <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-slate-200/80 bg-white/60 text-sm font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+                  <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+                    {" "}
                     Cargando ítems…
                   </div>
                 ) : invoiceItems.length > 0 ? (
                   <div className="space-y-4">
-                    <div className="hidden grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 sm:grid">
+                    <div className="hidden grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 dark:text-slate-400 sm:grid">
+                      {" "}
                       <span className="sm:col-span-6">Producto</span>
                       <span className="text-right sm:col-span-2">Cant.</span>
                       <span className="text-right sm:col-span-2">Unitario</span>
@@ -414,25 +426,25 @@ function RealtimeView() {
                       {invoiceItems.map((item, idx) => (
                         <div
                           key={`${item.description}-${idx}`}
-                          className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200/70 bg-white/90 px-4 py-3 text-sm text-slate-600 shadow-sm transition-colors dark:border-slate-800/70 dark:bg-slate-900/60 dark:text-slate-200 sm:grid-cols-12"
+                          className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm transition-colors dark:border-slate-800/70 dark:bg-slate-900/60 dark:text-slate-200 sm:grid-cols-12"
                         >
                           <span className="font-medium text-slate-700 dark:text-slate-100 sm:col-span-6">
                             {item.description}
                           </span>
-                          <span className="flex items-center justify-between text-slate-500 dark:text-slate-400 sm:col-span-2 sm:justify-end">
-                            <span className="text-xs uppercase tracking-wide text-slate-400 sm:hidden">
+                          <span className="flex items-center justify-between text-slate-600 dark:text-slate-400 sm:col-span-2 sm:justify-end">
+                            <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
                               Cant.
                             </span>
                             <span>{item.quantity.toFixed(2)}</span>
                           </span>
-                          <span className="flex items-center justify-between text-slate-500 dark:text-slate-400 sm:col-span-2 sm:justify-end">
-                            <span className="text-xs uppercase tracking-wide text-slate-400 sm:hidden">
+                          <span className="flex items-center justify-between text-slate-600 dark:text-slate-400 sm:col-span-2 sm:justify-end">
+                            <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
                               Unitario
                             </span>
                             <span>{formatCurrency(item.unit_price)}</span>
                           </span>
-                          <span className="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-100 sm:col-span-2 sm:justify-end">
-                            <span className="text-xs uppercase tracking-wide text-slate-400 sm:hidden">
+                          <span className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-100 sm:col-span-2 sm:justify-end">
+                            <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
                               Subtotal
                             </span>
                             <span>{formatCurrency(item.subtotal)}</span>
@@ -442,20 +454,22 @@ function RealtimeView() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-slate-200/80 bg-white/60 text-sm font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+                  <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+                    {" "}
                     Sin ítems para mostrar
                   </div>
                 )}
               </>
             ) : (
-              <div className="flex h-48 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200/80 bg-white/60 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+              <div className="flex h-48 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-center text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+                {" "}
                 <span className="text-3xl" aria-hidden="true">
                   🧾
                 </span>
                 <p className="text-sm font-medium">
                   Selecciona una factura para ver sus ítems.
                 </p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
                   Mantén la vista principal mientras exploras el detalle de cada
                   documento.
                 </p>
