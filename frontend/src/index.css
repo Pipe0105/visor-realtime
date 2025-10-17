@@ -1,10 +1,12 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
+    --background: 210 33% 97%;
     --foreground: 222.2 47.4% 11.2%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 47.4% 11.2%;
@@ -14,37 +16,37 @@
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215 20.2% 35.1%;
+    --muted: 213 27% 92%;
+    --muted-foreground: 215 16% 36%;
     --accent: 48 96% 60%;
     --accent-foreground: 24 9.8% 10%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 213 27% 84%;
-    --input: 213 27% 84%;
+    --border: 214 32% 90%;
+    --input: 214 32% 90%;
     --ring: 209 100% 47%;
     --radius: 0.75rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 217.2 32.6% 17.5%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --background: 224 40% 11%;
+    --foreground: 210 40% 96%;
+    --card: 223 45% 15%;
+    --card-foreground: 210 40% 96%;
+    --popover: 224 40% 11%;
+    --popover-foreground: 210 40% 96%;
     --primary: 209 100% 63%;
     --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --secondary: 223 45% 18%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 223 38% 18%;
+    --muted-foreground: 215 20% 70%;
+    --accent: 223 38% 22%;
+    --accent-foreground: 210 40% 96%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
+    --border: 223 36% 22%;
+    --input: 223 36% 22%;
     --ring: 209 100% 63%;
   }
 
@@ -53,6 +55,11 @@
   }
 
   body {
-    @apply bg-background font-sans text-foreground transition-colors duration-300;
+    @apply bg-background font-sans text-foreground antialiased transition-colors duration-300;
+    font-feature-settings: "ss03", "ss04", "cv02", "cv03";
+  }
+
+  ::selection {
+    background-color: hsla(var(--primary), 0.16);
   }
 }
