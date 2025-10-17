@@ -363,7 +363,7 @@ function RealtimeView() {
         </Card>
 
         <div className="lg:sticky lg:top-24 lg:self-start">
-          <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+          <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70 lg:flex lg:h-[calc(100vh-7rem)] lg:max-h-[calc(100vh-7rem)] lg:flex-col lg:overflow-hidden">
             {" "}
             <CardHeader className="space-y-2 pb-5">
               <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
@@ -377,7 +377,7 @@ function RealtimeView() {
                   : "Selecciona una factura de la lista para explorar sus ítems sin salir de la vista principal."}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-6 lg:flex-1 lg:overflow-y-auto">
               {selectedInvoiceData ? (
                 <>
                   <div className="grid gap-3 sm:grid-cols-3">
