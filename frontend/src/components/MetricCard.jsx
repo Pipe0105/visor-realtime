@@ -1,16 +1,35 @@
 import React from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { cn } from "../lib/utils";
 
-export default function MetricCard({ title, value, color = "text-primary", icon = ""}) {
-    return (
-        <div 
-          className="flex-1 bg-card dark:bg-darkCard rounded-2xl shadow-md p-6 transition-all duration-300 hover:shadow-lg animate-pop">
-            <div className="flex items-center justify-between" >
-                <h3 className={`text-lg font-semibold ${color}`}> {title} </h3>
-                <span className="text-2x1 opacity-80" > {icon} </span>
-            </div>
-            <p className="text-3x1 font-bold text-gray-900 dark:text-darkText mt-3" >
-                {value}
-            </p>
-          </div>
-    );
+export default function MetricCard({
+  title,
+  value,
+  color = "text-primary",
+  icon = "",
+}) {
+  return (
+    <Card className="relative overflow-hidden">
+      <span
+        className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full
+      bg-primary/10 blur-3xl transition-all duration-500 group-hover:h-40 group-hover:w-40
+      dark:bg-primary/20"
+      />
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle
+          className={cn(
+            "text-sm font-medium text-slate-500 dark:text-slate-300",
+            color
+          )}
+        >
+          {title}
+        </CardTitle>
+        <CardContent>
+          <p className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-foreground">
+            {value}
+          </p>
+        </CardContent>
+      </CardHeader>
+    </Card>
+  );
 }

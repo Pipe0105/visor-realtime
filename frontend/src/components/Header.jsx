@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
 
 export default function Header({ onToggleTheme, theme }) {
   const [time, setTime] = useState(new Date());
@@ -16,32 +18,44 @@ export default function Header({ onToggleTheme, theme }) {
     });
 
   return (
-    <header className="fixed top-0 left-0 w-full z-50 backdrop-blur-lg bg-white/70 dark:bg-darkCard/80 shadow-sm border-b border-gray-200 dark:border-gray-700">
-      <div className="max-w-7xl mx-auto flex flex-col items-center justify-center text-center sm:flex-row sm:justify-between sm:text-left px-6 py-3">
-        {/* Bloque Izquierdo */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-3">
-          <div className="flex items-center justify-center gap-2">
-            <span className="text-2xl">🧾</span>
-            <h1 className="text-xl sm:text-2xl font-semibold text-primary dark:text-darkText">
-              Visor Realtime — <span className="text-blue-600">FLORESTA</span>
-            </h1>
+    <header className="supports-[backdrop-filter]:bg-white/60 fixed inset-x-0 top-0 z-50 border-b border-slate-200/70 bg-white/80 backdrop-blur-lg transition-colors duration-300 dark:border-slate-800/80 dark:bg-slate-950/80">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="flex flex-1 items-center gap-4">
+          <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-2xl">
+            <span className="animate-pulse text-primary">🧾</span>
           </div>
-          <span className="text-gray-700 dark:text-gray-300 mt-1 sm:mt-0 text-sm">
-            {formatTime()}
-          </span>
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-foreground sm:text-2xl">
+                Visor Realtime
+              </h1>
+              <Badge
+                variant="outline"
+                className="border-primary/40 text-primary dark:border-primary/40"
+              >
+                Floresta
+              </Badge>
+            </div>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Monitor de facturación en vivo para sucursales Siesa
+            </p>
+          </div>
         </div>
 
-        {/* Bloque Derecho */}
-        <div className="mt-2 sm:mt-0">
-          <button
+        <div className="flex items-center gap-4">
+          <div className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600 shadow-inner dark:bg-slate-800/80 dark:text-foreground">
+            {formatTime()}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={onToggleTheme}
-            className="px-3 py-1.5 rounded-lg font-medium bg-primary/10 dark:bg-gray-700 text-primary dark:text-gray-100 hover:scale-105 transition-all"
+            className="shadow-sm"
           >
-            {theme === "dark" ? "☀️ Modo Claro" : "🌙 Modo Oscuro"}
-          </button>
+            {theme === "dark" ? "☀️ Modo claro" : "🌙 Modo oscuro"}
+          </Button>
         </div>
       </div>
     </header>
   );
-
 }

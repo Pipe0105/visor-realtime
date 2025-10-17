@@ -1,8 +1,15 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import MetricCard from "../components/MetricCard";
+import { Badge } from "../components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
+import { cn } from "../lib/utils";
 
-
-// ✅ Formateador de moneda en pesos colombianos
 function formatCurrency(value) {
   if (value == null || isNaN(value)) return "$0";
   return value.toLocaleString("es-CO", {
@@ -22,21 +29,22 @@ function RealtimeView() {
 
   useEffect(() => {
     fetch("http://127.0.0.1:8000/invoices/today")
-    .then((res) =>res.json())
-    .then((data) => {
-      console.log("Facturas del dia cargadas:", data);
-      setMessages(data);
-    })
-    .catch((err) => console.error("Error cargando facturas", err));
+      .then((res) => res.json())
+      .then((data) => {
+        console.log("Facturas del dia cargadas:", data);
+        setMessages(data);
+      })
+      .catch((err) => console.error("Error cargando facturas", err));
   }, []);
 
   useEffect(() => {
     fetch("http://127.0.0.1:8000/invoices/today")
       .then((res) => res.json())
-      .then((data) =>   {
+      .then((data) => {
         console.log(" Facturas del día cargadas:", data.length);
         setMessages(data);
-         })
+      });
+
     const ws = new WebSocket("ws://127.0.0.1:8000/ws/FLO");
 
     ws.onopen = () => {
@@ -47,15 +55,11 @@ function RealtimeView() {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       console.log("📩 Mensaje recibido:", data);
-      
-      // verificacion dia factura
-      const today = new Date().toISOString().slice(0, 10); // 2025-10-09
-      const invoceDay = data.timestamp
-        ? data.timestamp.slice(0, 10)
-        : today;
-      
-      // si la factura es de otro dia se reinicia el listado  
-      setMessages((prev) =>{
+
+      const today = new Date().toISOString().slice(0, 10);
+      const invoceDay = data.timestamp ? data.timestamp.slice(0, 10) : today;
+
+      setMessages((prev) => {
         if (prev.length > 0) {
           const firstDay = prev[0].timestamp
             ? prev[0].timestamp.slice(0, 10)
@@ -67,7 +71,7 @@ function RealtimeView() {
         }
         return [data, ...prev.slice(0, 5000)];
       });
-      };
+    };
 
     ws.onclose = () => {
       setStatus("Desconectado 🔴");
@@ -87,7 +91,9 @@ function RealtimeView() {
     setLoadingItems(true);
     setSelectedInvoices(invoice_number);
     try {
-      const res = await fetch(`http://127.0.0.1:8000/invoices/${invoice_number}/items`);
+      const res = await fetch(
+        `http://127.0.0.1:8000/invoices/${invoice_number}/items`
+      );
       const data = await res.json();
       if (data.items) {
         setInvoicesItems(data.items);
@@ -102,7 +108,6 @@ function RealtimeView() {
     }
   }
 
-  //  Cálculos en tiempo real (ventas totales, promedio, cantidad)
   const summary = useMemo(() => {
     if (messages.length === 0) return { total: 0, count: 0, avg: 0 };
     const total = messages.reduce((sum, f) => sum + (f.total || 0), 0);
@@ -111,246 +116,211 @@ function RealtimeView() {
     return { total, count, avg };
   }, [messages]);
 
+  const connectionHealthy = status.includes("🟢");
+
   return (
-    <div
-      style={{
-        padding: "2rem",
-        fontFamily: "Segoe UI, sans-serif",
-        background: "#f8f9fa",
-        minHeight: "100vh",
-      }}
-    >
-      <p style={{ fontSize: "1.1rem" }}>
-        Estado del servidor:{" "}
-        <strong
-          style={{
-            color: status.includes("🟢") ? "green" : "red",
-            fontWeight: "bold",
-          }}
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+      <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary/80">
+            Monitoreo en vivo
+          </p>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-foreground">
+            Resumen de facturación diaria
+          </h2>
+          <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-400">
+            Revisa cómo se comportan las ventas en tiempo real y consulta los
+            detalles de cada factura sin abandonar la vista principal.
+          </p>
+        </div>
+        <Badge
+          variant={connectionHealthy ? "success" : "danger"}
+          className="self-start text-sm"
         >
           {status}
-        </strong>
-      </p>
+        </Badge>
+      </section>
 
-      {/*  Metrics Cards */}
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6 mb-8 ">
+      <section className="grid gap-4 md:grid-cols-3">
         <MetricCard
-        title = "Total Ventas"
-        value = {formatCurrency(summary.total)}
-        color = "text-green-600"
+          title="Total ventas"
+          value={formatCurrency(summary.total)}
+          color="text-primary"
+          icon="💰"
         />
         <MetricCard
-        title = "Facturas"
-        value = {summary.count}
-        color = "text-blue-600"
+          title="Facturas"
+          value={summary.count}
+          color="text-blue-500"
+          icon="📄"
         />
         <MetricCard
-        title = "Promedio"
-        value = {formatCurrency(summary.avg)}
-        color = "text-yellow-500"
+          title="Promedio"
+          value={formatCurrency(summary.avg)}
+          color="text-amber-500"
+          icon="📊"
         />
-      </div>
+      </section>
 
-{/*  Listado de facturas */}
-<h2> Últimas facturas procesadas:</h2>
-
-{messages.length === 0 ? (
-  <p>No hay facturas nuevas todavía...</p>
-) : (
-  <ul style={{ listStyle: "none", paddingLeft: 0 }}>
-    {messages.map((msg, i) => (
-      <li
-        key={i}
-        onClick={() => handleInvoiceClick(msg.invoice_number)}
-        style={{
-          padding: "10px 14px",
-          marginBottom: "4px",
-          borderBottom: "1px solid #e0e0e0",
-          background:
-          selectedInvoices === msg.invoice_number ? "#e9f5ff" : i % 2 === 0 ? "#fff" : "#f8f9fa",
-          borderRadius: "6px",
-          cursor: "pointer",
-          display: "flex",
-          transition: "background 0.2s",
-          flexDirection: "column",
-          justifyContent: "space-between",
-        }}
-      >
-        {/* Primera línea: número, total y hora */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <span
-            style={{
-              fontWeight: "bold",
-              color: "#212529",
-              flex: "1",
-              minWidth: "90px",
-            }}
-          >
-            {msg.invoice_number}
-          </span>
-
-          <span
-            style={{
-              color: "#007bff",
-              fontWeight: "600",
-              flex: "1",
-              textAlign: "center",
-            }}
-          >
-            {formatCurrency(msg.total)}
-          </span>
-
-          <span
-            style={{
-              color: "#666",
-              fontSize: "0.95rem",
-              flex: "1",
-              textAlign: "right",
-              minWidth: "120px",
-            }}
-          >
-            {msg.invoice_date
-              ? new Date(msg.invoice_date).toLocaleString("es-CO", {
-                  dateStyle: "short",
-                  timeStyle: "short",
-                })
-              : ""}
-          </span>
-        </div>
-
-        {/* Segunda línea: ítems */}
-        <div
-          style={{
-            color: "#888",
-            fontSize: "0.9rem",
-            marginTop: "4px",
-            paddingLeft: "2px",
-          }}
-        >
-          Ítems: <strong>{msg.items}</strong>
-        </div>
-
-        {/* items desplegables*/}
-        {selectedInvoices === msg.invoice_number && (
-          <div
-            style={{
-              marginTop: "8px",
-              paddingLeft: "10px",
-              fontSize: "0.95rem",
-              color: "#333",
-            }}
-          >
-            {loadingItems ? (
-              <em>Cargando items...</em>
-            ) : invoiceItems.length > 0 ? (
-              <div 
-                style={{
-                  marginTop: "8px",
-                  paddingLeft: "10px",
-                  fontSize: "0.95rem",
-                  color: "#333",
-                  overflow: "hidden",
-                  transition: "all 0.4s ease",
-                  opacity: selectedInvoices === msg.invoice_number ? 1 : 0,
-                  transform:
-                    selectedInvoices === msg.invoice_number
-                      ? "translateY(0px)"
-                      : "translateY()"
-                }}>
-              <ul style={{ listStyle: "none", paddingLeft: 0, marginTop: "6px" }} >
-                {/* Encabezados de las columnas */}
-                <li style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 70px 100px 110px",
-                  fontWeight: "600",
-                  color: "#444",
-                  borderBottom: "2px solid #ccc",
-                  paddingBottom: "6px",
-                  fontSize: "0.9rem",
-                }} 
-                >
-                  <span>Producto</span>
-                  <span style={{ textAlign: "right" }} >Cant.</span>
-                  <span style={{ textAlign: "right" }} >Unitario</span>
-                  <span style={{ textAlign: "right" }} >Subtotal</span>
-                </li>
-
-                {/* filas productos */}
-                {invoiceItems.map((it,idx) => (
-                  <li
-                    key={idx}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 70px 100px 110px",
-                      alignItems: "center",
-                      fontSize: "0.9rem",
-                      color: "#333",
-                      padding: "2px 0",
-                      borderBottom: "1px solid #eee",
-                    }}
-                  >
-                    <span style={{ paddingRight: "8px"}}> {it.description} </span>
-                    <span style={{ textAlign: "right", color: "#666"}} >
-                      {it.quantity.toFixed(2)}
-                    </span>
-                    <span style={{ textAlign: "right", color: "#666"}} >
-                      {formatCurrency(it.unit_price)}
-                    </span>
-                    <span
-                      style={{
-                        textAlign: "right",
-                        fontWeight: "600",
-                        color: "#007bff"
-                      }}
-                    >
-                      {formatCurrency(it.subtotal)}
-                    </span>
-                  </li>
-                ))}
-
-                {/* Total General */}
-                <li
-                  style={{
-                    marginTop: "6px",
-                    paddingTop: "6px",
-                    borderTop: "2px solid #ccc",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontWeight: "bold",
-                    color: "#222",
-                    fontSize: "1rem"
-                  }}
-                  >
-                    <span>Total items: {invoiceItems.length}</span>
-                    <span>
-                      Total factura:{" "}
-                      <span style={{color: "#007bff"}} >
-                        {formatCurrency(
-                          invoiceItems.reduce((sum, i) => sum + (i.subtotal || 0), 0)
-                        )}
-                      </span>
-                    </span>
-                  </li>
-              </ul>
+      <Card className="border-dashed border-slate-200/80 bg-white/80 shadow-lg backdrop-blur-sm dark:border-slate-800/80 dark:bg-slate-950/60">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-2xl">
+            Últimas facturas procesadas
+          </CardTitle>
+          <CardDescription>
+            Haz clic sobre una factura para desplegar los ítems y revisar el
+            detalle completo del documento.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200/80 bg-white/60 p-10 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400">
+              <span className="text-4xl">🕓</span>
+              <div className="space-y-1">
+                <p className="text-lg font-medium text-slate-600 dark:text-foreground">
+                  Aún no hay facturas nuevas
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  En cuanto se procese la primera, aparecerá aquí
+                  automáticamente.
+                </p>
               </div>
-            ) : (
-              <em>Sin items</em>
-            )}
-          </div>
-        )}
-      </li>
-    ))}
-  </ul>
-)}
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {messages.map((msg, i) => {
+                const isSelected = selectedInvoices === msg.invoice_number;
+                return (
+                  <li key={`${msg.invoice_number}-${i}`}>
+                    <button
+                      type="button"
+                      onClick={() => handleInvoiceClick(msg.invoice_number)}
+                      className={cn(
+                        "w-full rounded-2xl border border-transparent bg-white/80 p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-slate-900/60",
+                        {
+                          "border-primary/60 shadow-xl ring-2 ring-primary/30 dark:border-primary/60":
+                            isSelected,
+                        }
+                      )}
+                    >
+                      <div className="flex flex-col gap-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-lg font-semibold text-primary">
+                              {msg.items || 0}
+                            </span>
+                            <div>
+                              <p className="text-sm uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Factura
+                              </p>
+                              <p className="text-lg font-semibold text-slate-900 dark:text-foreground">
+                                #{msg.invoice_number}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end">
+                            <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                              Total factura
+                            </span>
+                            <span className="text-xl font-semibold text-primary">
+                              {formatCurrency(msg.total)}
+                            </span>
+                          </div>
+                          <div className="text-right text-sm text-slate-500 dark:text-slate-400">
+                            {msg.invoice_date
+                              ? new Date(msg.invoice_date).toLocaleString(
+                                  "es-CO",
+                                  {
+                                    dateStyle: "short",
+                                    timeStyle: "short",
+                                  }
+                                )
+                              : ""}
+                          </div>
+                        </div>
+                        <div className="text-sm text-slate-500 dark:text-slate-400">
+                          Ítems registrados:{" "}
+                          <strong className="text-slate-700 dark:text-foreground">
+                            {msg.items}
+                          </strong>
+                        </div>
 
+                        {isSelected && (
+                          <div className="space-y-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 text-sm shadow-inner transition-all dark:border-slate-800/70 dark:bg-slate-900/60">
+                            {loadingItems ? (
+                              <em className="text-slate-500 dark:text-slate-400">
+                                Cargando ítems...
+                              </em>
+                            ) : invoiceItems.length > 0 ? (
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-1 gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:grid-cols-12">
+                                  <span className="sm:col-span-6">
+                                    Producto
+                                  </span>
+                                  <span className="text-right sm:col-span-2">
+                                    Cant.
+                                  </span>
+                                  <span className="text-right sm:col-span-2">
+                                    Unitario
+                                  </span>
+                                  <span className="text-right sm:col-span-2">
+                                    Subtotal
+                                  </span>
+                                </div>
+                                <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                                  {invoiceItems.map((item, idx) => (
+                                    <div
+                                      key={`${item.description}-${idx}`}
+                                      className="grid grid-cols-1 gap-2 py-2 text-sm text-slate-700 dark:text-foreground sm:grid-cols-12"
+                                    >
+                                      <span className="sm:col-span-6">
+                                        {item.description}
+                                      </span>
+                                      <span className="text-right text-slate-500 dark:text-slate-400 sm:col-span-2">
+                                        {item.quantity.toFixed(2)}
+                                      </span>
+                                      <span className="text-right text-slate-500 dark:text-slate-400 sm:col-span-2">
+                                        {formatCurrency(item.unit_price)}
+                                      </span>
+                                      <span className="text-right font-semibold text-primary sm:col-span-2">
+                                        {formatCurrency(item.subtotal)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="flex flex-col gap-2 rounded-2xl bg-white/70 p-4 text-sm font-semibold text-slate-600 shadow-sm dark:bg-slate-900/70 dark:text-foreground sm:flex-row sm:items-center sm:justify-between">
+                                  <span>
+                                    Total ítems: {invoiceItems.length}
+                                  </span>
+                                  <span>
+                                    Total factura:{" "}
+                                    <span className="text-primary">
+                                      {formatCurrency(
+                                        invoiceItems.reduce(
+                                          (sum, i) => sum + (i.subtotal || 0),
+                                          0
+                                        )
+                                      )}
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
+                            ) : (
+                              <em className="text-slate-500 dark:text-slate-400">
+                                Sin ítems
+                              </em>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
