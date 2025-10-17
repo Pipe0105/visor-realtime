@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import MetricCard from "../components/MetricCard";
 import { Badge } from "../components/badge";
 import {
@@ -20,31 +20,78 @@ function formatCurrency(value) {
   });
 }
 
+const PAGE_SIZE = 700;
+
+function toNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function RealtimeView() {
   const [status, setStatus] = useState("Desconectado 🔴");
   const [messages, setMessages] = useState([]);
   const [selectedInvoices, setSelectedInvoices] = useState(null);
   const [invoiceItems, setInvoicesItems] = useState([]);
   const [loadingItems, setLoadingItems] = useState(false);
+  const [dailySummary, setDailySummary] = useState({
+    totalSales: 0,
+    totalInvoices: 0,
+    averageTicket: 0,
+  });
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/invoices/today")
-      .then((res) => res.json())
-      .then((data) => {
-        console.log("Facturas del dia cargadas:", data);
-        setMessages(data);
-      })
-      .catch((err) => console.error("Error cargando facturas", err));
+    async function loadInvoices() {
+      try {
+        const res = await fetch(
+          `http://127.0.0.1:8000/invoices/today?limit=${PAGE_SIZE}`
+        );
+        const data = await res.json();
+
+        if (Array.isArray(data)) {
+          console.log("Facturas del día cargadas (modo legado):", data.length);
+          setMessages(data.slice(0, PAGE_SIZE));
+          const total = data.reduce((sum, f) => sum + (f.total || 0), 0);
+          const count = data.length;
+          setDailySummary({
+            totalSales: total,
+            totalInvoices: count,
+            averageTicket: count ? total / count : 0,
+          });
+          return;
+        }
+
+        console.log(
+          "Facturas del día cargadas:",
+          Array.isArray(data.invoices) ? data.invoices.length : 0
+        );
+
+        setMessages(Array.isArray(data.invoices) ? data.invoices : []);
+        const totalSales = toNumber(data.total_sales);
+        const totalInvoices = Math.trunc(toNumber(data.total_invoices));
+        const averageTicket = toNumber(
+          data.average_ticket ??
+            (totalInvoices ? totalSales / totalInvoices : 0)
+        );
+        setDailySummary({
+          totalSales,
+          totalInvoices,
+          averageTicket,
+        });
+      } catch (err) {
+        console.error("Error cargando facturas", err);
+        setMessages([]);
+        setDailySummary({
+          totalSales: 0,
+          totalInvoices: 0,
+          averageTicket: 0,
+        });
+      }
+    }
+
+    loadInvoices();
   }, []);
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/invoices/today")
-      .then((res) => res.json())
-      .then((data) => {
-        console.log(" Facturas del día cargadas:", data.length);
-        setMessages(data);
-      });
-
     const ws = new WebSocket("ws://127.0.0.1:8000/ws/FLO");
 
     ws.onopen = () => {
@@ -60,16 +107,39 @@ function RealtimeView() {
       const invoceDay = data.timestamp ? data.timestamp.slice(0, 10) : today;
 
       setMessages((prev) => {
-        if (prev.length > 0) {
-          const firstDay = prev[0].timestamp
-            ? prev[0].timestamp.slice(0, 10)
-            : today;
-          if (invoceDay !== firstDay) {
-            console.log("Nuevo dia detectado - limpiando facturas antiguas");
-            return [data];
+        const firstDay = prev[0]?.timestamp
+          ? prev[0].timestamp.slice(0, 10)
+          : today;
+        const isNewDay = prev.length > 0 && invoceDay !== firstDay;
+        const invoiceTotal = toNumber(data.total);
+
+        setDailySummary((prevSummary) => {
+          if (isNewDay) {
+            console.log("Nuevo dia detectado - reiniciando resumen diario");
+            return {
+              totalSales: invoiceTotal,
+              totalInvoices: 1,
+              averageTicket: invoiceTotal,
+            };
           }
+
+          const baseSales = prevSummary?.totalSales || 0;
+          const baseInvoices = prevSummary?.totalInvoices || 0;
+          const totalSales = baseSales + invoiceTotal;
+          const totalInvoices = baseInvoices + 1;
+
+          return {
+            totalSales,
+            totalInvoices,
+            averageTicket: totalInvoices ? totalSales / totalInvoices : 0,
+          };
+        });
+
+        if (isNewDay) {
+          return [data];
         }
-        return [data, ...prev.slice(0, 5000)];
+
+        return [data, ...prev.slice(0, PAGE_SIZE - 1)];
       });
     };
 
@@ -108,13 +178,11 @@ function RealtimeView() {
     }
   }
 
-  const summary = useMemo(() => {
-    if (messages.length === 0) return { total: 0, count: 0, avg: 0 };
-    const total = messages.reduce((sum, f) => sum + (f.total || 0), 0);
-    const count = messages.length;
-    const avg = total / count;
-    return { total, count, avg };
-  }, [messages]);
+  const summary = {
+    total: dailySummary.totalSales,
+    count: dailySummary.totalInvoices,
+    avg: dailySummary.averageTicket,
+  };
 
   const connectionHealthy = status.includes("🟢");
 

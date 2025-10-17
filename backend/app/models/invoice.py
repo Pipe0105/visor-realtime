@@ -18,6 +18,10 @@ class Invoice(Base):
     total = Column(Numeric(12, 2), default=0)
     source_file = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now()) # fecha crecion BD
-    items = relationship("InvoiceItem", back_populates="invoice",
-                         cascade="all, delete-orphan", lazy="joined")
+    items = relationship(
+        "InvoiceItem",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
     invoice_date = Column(DateTime(timezone=True)) # Fecha dentro de la factura

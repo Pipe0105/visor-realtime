@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
-from datetime import datetime, timedelta, date
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func, select
+from datetime import datetime, timedelta
 from app.database import get_db
 from app.models.invoice import Invoice
 from app.models.invoice_item import InvoiceItem
@@ -62,38 +62,82 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/today")
-def get_today_invoices(db: Session = Depends(get_db)):
-    # Devuelve todas las facturas creadas el día actual (desde medianoche hasta ahora).
+def get_today_invoices(
+    limit: int = Query(700, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """Devuelve un resumen y la página solicitada de facturas del día."""
+
     today = datetime.now().date()
     tomorrow = today + timedelta(days=1)
+    filters = [Invoice.created_at >= today, Invoice.created_at < tomorrow]
 
-    invoices = (
-        db.query(Invoice)
-        .options(joinedload(Invoice.items))
-        .filter(Invoice.created_at >= today, Invoice.created_at < tomorrow)
+    total_invoices, total_sales_value = (
+        db.query(
+            func.count(Invoice.id),
+            func.coalesce(func.sum(Invoice.total), 0),
+        )
+        .filter(*filters)
+        .one()
+    )
+
+    total_invoices = int(total_invoices or 0)
+    total_sales = float(total_sales_value or 0)
+    average_ticket = total_sales / total_invoices if total_invoices else 0.0
+
+    items_count_subquery = (
+        select(func.count(InvoiceItem.id))
+        .where(InvoiceItem.invoice_id == Invoice.id)
+        .correlate(Invoice)
+        .scalar_subquery()
+    )
+
+    invoice_rows = (
+        db.query(
+            Invoice.number,
+            Invoice.total,
+            Invoice.created_at,
+            Invoice.invoice_date,
+            Invoice.branch_id,
+            items_count_subquery.label("items_count"),
+        )
+        .filter(*filters)
+        .order_by(Invoice.created_at.desc())
+        .offset(offset)
+        .limit(limit)
         .order_by(Invoice.created_at.desc())
         .all()
     )
 
-    result = []
-    for inv in invoices:
-        result.append({
-            "invoice_number": inv.number,
-            "total": float(inv.total),
-            "items": len(inv.items) if inv.items else 0,
-            "timestamp": inv.created_at.isoformat(),
-            "invoice_date": inv.invoice_date,
-            "branch": str(inv.branch_id) if inv.branch_id else "FLO",
-        })
+    invoices = []
+    for inv in invoice_rows:
+        invoices.append(
+            {
+                "invoice_number": inv.number,
+                "total": float(inv.total or 0),
+                "items": int(inv.items_count or 0),
+                "timestamp": inv.created_at.isoformat() if inv.created_at else None,
+                "invoice_date": inv.invoice_date.isoformat() if inv.invoice_date else None,
+                "branch": str(inv.branch_id) if inv.branch_id else "FLO",
+            }
+        )
 
-    return result
+    return {
+        "invoices": invoices,
+        "total_invoices": total_invoices,
+        "total_sales": total_sales,
+        "average_ticket": average_ticket,
+        "limit": limit,
+        "offset": offset,
+    }
 
 @router.get("/{invoice_number}/items")
 def get_invoice_items(invoice_number: str, db: Session = Depends(get_db)):
     try:
         invoice = (
             db.query(Invoice)
-            .options(joinedload(Invoice.items))
+            .options(selectinload(Invoice.items))
             .filter(Invoice.number == invoice_number)
             .first()
         )
