@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
+import MetricCard from "../components/MetricCard";
+
 
 // ✅ Formateador de moneda en pesos colombianos
 function formatCurrency(value) {
@@ -118,10 +120,6 @@ function RealtimeView() {
         minHeight: "100vh",
       }}
     >
-      <h1 style={{ color: "#222" }}>
-         Visor Realtime —{" "}
-        <span style={{ color: "#007bff" }}>FLORESTA</span>
-      </h1>
       <p style={{ fontSize: "1.1rem" }}>
         Estado del servidor:{" "}
         <strong
@@ -134,57 +132,24 @@ function RealtimeView() {
         </strong>
       </p>
 
-      {/*  Resumen de ventas */}
-      <div
-        style={{
-          display: "flex",
-          gap: "1rem",
-          marginTop: "1rem",
-          marginBottom: "2rem",
-        }}
-      >
-        <div
-          style={{
-            background: "#fff",
-            padding: "1rem 1.5rem",
-            borderRadius: "12px",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
-            flex: 1,
-          }}
-        >
-          <h3 style={{ margin: 0, color: "#28a745" }}> Total Ventas</h3>
-          <p style={{ fontSize: "1.4rem", fontWeight: "bold", margin: "0.5rem 0" }}>
-            {formatCurrency(summary.total)}
-          </p>
-        </div>
-        <div
-          style={{
-            background: "#fff",
-            padding: "1rem 1.5rem",
-            borderRadius: "12px",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
-            flex: 1,
-          }}
-        >
-          <h3 style={{ margin: 0, color: "#007bff" }}>🧾 Facturas</h3>
-          <p style={{ fontSize: "1.4rem", fontWeight: "bold", margin: "0.5rem 0" }}>
-            {summary.count}
-          </p>
-        </div>
-        <div
-          style={{
-            background: "#fff",
-            padding: "1rem 1.5rem",
-            borderRadius: "12px",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
-            flex: 1,
-          }}
-        >
-          <h3 style={{ margin: 0, color: "#ffc107" }}> Promedio</h3>
-          <p style={{ fontSize: "1.4rem", fontWeight: "bold", margin: "0.5rem 0" }}>
-            {formatCurrency(summary.avg)}
-          </p>
-        </div>
+      {/*  Metrics Cards */}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6 mb-8 ">
+        <MetricCard
+        title = "Total Ventas"
+        value = {formatCurrency(summary.total)}
+        color = "text-green-600"
+        />
+        <MetricCard
+        title = "Facturas"
+        value = {summary.count}
+        color = "text-blue-600"
+        />
+        <MetricCard
+        title = "Promedio"
+        value = {formatCurrency(summary.avg)}
+        color = "text-yellow-500"
+        />
       </div>
 
 {/*  Listado de facturas */}

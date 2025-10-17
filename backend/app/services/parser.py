@@ -109,3 +109,5 @@ def parse_invoice(content: str) -> dict:
         print("⚠️ Advertencia: no se detectaron ítems con el patrón actual.")
 
     return {"header": header, "items": items, "totals": totals}
+
+
