@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import MetricCard from "../components/MetricCard";
-import { Badge } from "../components/ui/badge";
+import { Badge } from "../components/badge";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "../components/ui/card";
+} from "../components/card";
 import { cn } from "../lib/utils";
 
 function formatCurrency(value) {

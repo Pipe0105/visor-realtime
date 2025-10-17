@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
+import { Button } from "../components/button";
+import { Badge } from "../components/badge";
 
 export default function Header({ onToggleTheme, theme }) {
   const [time, setTime] = useState(new Date());

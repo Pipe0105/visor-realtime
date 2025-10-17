@@ -1,5 +1,7 @@
 from typing import List, Dict
 from fastapi import WebSocket
+from typing import List, Dict, Optional
+import asyncio
 import json
 from datetime import datetime
 
@@ -9,8 +11,15 @@ class RealtimeManager:
     def __init__(self):
         self.connections: Dict[str, List[WebSocket]] = {}
         self.daily_messages: Dict[str, List[dict]] = {}  # historial por sede (solo de hoy)
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_loop(self, loop: asyncio.AbstractEventLoop):
+        """Guarda el event loop principal para reutilizarlo en hilos secundarios."""
+        self.loop = loop
 
     async def connect(self, websocket: WebSocket, branch: str):
+        if self.loop is None:
+            self.loop = asyncio.get_running_loop()
         await websocket.accept()
         if branch not in self.connections:
             self.connections[branch] = []

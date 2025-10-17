@@ -1,8 +1,10 @@
 from fastapi import FastAPI
+import asyncio
 import threading
 from app.api import routes_invoices, routes_branches, routes_realtime
 from app.services.file_reader import start_file_monitor
 from fastapi.middleware.cors import CORSMiddleware
+from app.services.realtime_manager import realtime_manager
 
 
 # 🚀 CONFIGURACIÓN PRINCIPAL DE LA API
@@ -35,7 +37,10 @@ app.include_router(routes_realtime.router, tags=["Realtime"])  # 👈 WebSocket 
 # 🧠 EVENTO STARTUP - INICIAR MONITOR DE FACTURAS
 
 @app.on_event("startup")
-def startup_event():
+async def startup_event():
+    """Inicia el monitor de archivos cuando arranca FastAPI."""
+    loop = asyncio.get_running_loop()
+    realtime_manager.set_loop(loop)
     """Inicia el monitor de archivos cuando arranca FastAPI."""
     monitor_thread = threading.Thread(target=start_file_monitor, daemon=True)
     monitor_thread.start()

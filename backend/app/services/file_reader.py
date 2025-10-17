@@ -107,10 +107,7 @@ def process_file(file_path: str):
             "invoice_date": invoice.invoice_date.isoformat() if invoice.invoice_date else None,
         }
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
+        loop = realtime_manager.loop
 
         if loop and loop.is_running():
             asyncio.run_coroutine_threadsafe(
