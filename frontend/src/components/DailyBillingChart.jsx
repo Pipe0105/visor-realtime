@@ -17,10 +17,6 @@ const axisCurrencyFormatter = new Intl.NumberFormat("es-CO", {
   maximumFractionDigits: 1,
   notation: "compact",
 });
-
-const innerWidth = WIDTH - PADDING.left - PADDING.right;
-const innerHeight = HEIGHT - PADDING.top - PADDING.bottom;
-
 function niceCeil(value) {
   if (!Number.isFinite(value) || value <= 0) {
     return 1;
