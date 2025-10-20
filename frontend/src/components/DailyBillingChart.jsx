@@ -113,7 +113,16 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
     const maxTime = Math.max(...timestamps);
     const timeSpan = maxTime - minTime;
     const sameTimestamp = timeSpan === 0;
-    const timeRange = sameTimestamp ? 1 : timeSpan;
+
+    // Extiende el rango proporcionalmente al tamaño real
+    // (20% extra si hay suficiente espacio, o al menos 5 minutos)
+    const extraRange = Math.max(timeSpan * 0.2, 5 * 60 * 1000);
+    const adjustedMinTime = minTime - extraRange;
+    const adjustedMaxTime = maxTime + extraRange;
+
+    const timeRange = sameTimestamp
+      ? 1
+      : Math.max(adjustedMaxTime - adjustedMinTime, 1);
 
     const values = data.map((item) => Number(item.total) || 0);
     const rawMin = Math.min(...values);
@@ -140,7 +149,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       if (sameTimestamp) {
         return PADDING.left + innerWidth / 2;
       }
-      const ratio = (timestamp - minTime) / timeRange;
+      const ratio = (timestamp - adjustedMinTime) / timeRange;
       return PADDING.left + ratio * innerWidth;
     };
 
@@ -193,7 +202,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       return domainMin + ratio * (domainMax - domainMin);
     });
 
-    const tickCount = Math.min(4, points.length);
+    const tickCount = Math.min(100, points.length);
     const indexSet = new Set();
     if (tickCount > 0) {
       for (let i = 0; i < tickCount; i += 1) {
