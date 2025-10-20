@@ -3,6 +3,7 @@ import DailySalesChart from "../components/DailySalesChart";
 import MetricCard from "../components/MetricCard";
 import { Badge } from "../components/badge";
 import { Button } from "../components/button";
+import DailyBillingChart from "../components/DailyBillingChart";
 
 import {
   Card,
@@ -50,6 +51,7 @@ function RealtimeView() {
     maxItems: "",
   });
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
+  const [dailySalesHistory, setDailySalesHistory] = useState([]);
 
   const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -104,6 +106,46 @@ function RealtimeView() {
 
     loadInvoices();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDailySalesHistory() {
+      try {
+        const params = new URLSearchParams();
+        params.set("days", "10");
+        if (filters.branch && filters.branch !== "all") {
+          params.set("branch", filters.branch);
+        }
+
+        const response = await fetch(
+          `http://127.0.0.1:8000/invoices/daily-sales?${params.toString()}`
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const payload = await response.json();
+        if (!cancelled) {
+          setDailySalesHistory(
+            Array.isArray(payload.history) ? payload.history : []
+          );
+        }
+      } catch (error) {
+        console.error("Error cargando historial de ventas", error);
+        if (!cancelled) {
+          setDailySalesHistory([]);
+        }
+      }
+    }
+
+    loadDailySalesHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filters.branch]);
 
   useEffect(() => {
     const ws = new WebSocket("ws://127.0.0.1:8000/ws/FLO");
@@ -198,6 +240,75 @@ function RealtimeView() {
     count: dailySummary.totalInvoices,
     avg: dailySummary.averageTicket,
   };
+
+  const billingSeries = useMemo(() => {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return {
+        series: [],
+        average: 0,
+      };
+    }
+
+    const timeFormatter = new Intl.DateTimeFormat("es-CO", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const tooltipFormatter = new Intl.DateTimeFormat("es-CO", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+
+    const entries = messages
+      .map((msg, idx) => {
+        const isoTimestamp = msg.timestamp || msg.invoice_date;
+        if (!isoTimestamp) {
+          return null;
+        }
+        const parsed = new Date(isoTimestamp);
+        if (Number.isNaN(parsed.getTime())) {
+          return null;
+        }
+
+        return {
+          invoiceNumber: msg.invoice_number,
+          timestamp: parsed.getTime(),
+          iso: parsed.toISOString(),
+          total: toNumber(msg.total),
+          branch: msg.branch || "FLO",
+          tooltipLabel: tooltipFormatter.format(parsed),
+          timeLabel: timeFormatter.format(parsed),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (entries.length === 0) {
+      return {
+        series: [],
+        average: 0,
+      };
+    }
+
+    const average =
+      entries.reduce((sum, item) => sum + toNumber(item.total), 0) /
+      entries.length;
+
+    const series = entries.map((entry) => ({
+      ...entry,
+      deviation: toNumber(entry.total) - average,
+      id: `${entry.invoiceNumber ?? "invoice"}-${entry.iso}`,
+    }));
+
+    return {
+      series,
+      average,
+    };
+  }, [messages]);
+
+  const latestBillingPoint =
+    billingSeries.series.length > 0
+      ? billingSeries.series[billingSeries.series.length - 1]
+      : null;
 
   const connectionHealthy = status.includes("🟢");
 
@@ -317,8 +428,42 @@ function RealtimeView() {
   }, [filters]);
 
   const dailySalesSeries = useMemo(() => {
-    if (messages.length === 0) {
-      if (dailySummary.totalSales > 0) {
+    const liveTotalsByDay = new Map();
+
+    if (messages.length > 0) {
+      messages.forEach((msg) => {
+        const branchKey = msg.branch || "FLO";
+        if (filters.branch !== "all" && branchKey !== filters.branch) {
+          return;
+        }
+
+        const baseDate =
+          (msg.invoice_date && msg.invoice_date.slice(0, 10)) ||
+          (msg.timestamp && msg.timestamp.slice(0, 10)) ||
+          todayKey;
+        const totalValue = toNumber(msg.total);
+        liveTotalsByDay.set(
+          baseDate,
+          (liveTotalsByDay.get(baseDate) || 0) + totalValue
+        );
+      });
+    }
+
+    const historyTotals = new Map();
+    dailySalesHistory.forEach((entry) => {
+      if (!entry || !entry.date) {
+        return;
+      }
+      historyTotals.set(entry.date, toNumber(entry.total));
+    });
+
+    const allDates = new Set([
+      ...historyTotals.keys(),
+      ...liveTotalsByDay.keys(),
+    ]);
+
+    if (allDates.size === 0) {
+      if (filters.branch === "all" && dailySummary.totalSales > 0) {
         const fallbackTotal = toNumber(dailySummary.totalSales);
         return [
           {
@@ -331,22 +476,15 @@ function RealtimeView() {
       return [];
     }
 
-    const totalsByDay = new Map();
-    messages.forEach((msg) => {
-      const baseDate =
-        (msg.invoice_date && msg.invoice_date.slice(0, 10)) ||
-        (msg.timestamp && msg.timestamp.slice(0, 10)) ||
-        todayKey;
-      const totalValue = toNumber(msg.total);
-      totalsByDay.set(baseDate, (totalsByDay.get(baseDate) || 0) + totalValue);
-    });
-
-    const sortedByDay = Array.from(totalsByDay.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0])
-    );
+    const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
 
     let cumulative = 0;
-    return sortedByDay.map(([date, total]) => {
+    return sortedDates.map((date) => {
+      const baseTotal = historyTotals.get(date) || 0;
+      const liveTotal = liveTotalsByDay.has(date)
+        ? liveTotalsByDay.get(date)
+        : null;
+      const total = liveTotal != null ? liveTotal : baseTotal;
       cumulative += total;
       return {
         date,
@@ -354,7 +492,13 @@ function RealtimeView() {
         cumulative,
       };
     });
-  }, [dailySummary.totalSales, messages, todayKey]);
+  }, [
+    dailySalesHistory,
+    dailySummary.totalSales,
+    filters.branch,
+    messages,
+    todayKey,
+  ]);
 
   const invoicesCountLabel = (() => {
     if (messages.length === 0) {
@@ -450,9 +594,40 @@ function RealtimeView() {
         />
       </section>
       <section>
-        <DailySalesChart data={dailySalesSeries} />
+        <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+          <CardHeader className="space-y-4 pb-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
+                  Evolución diaria
+                </CardTitle>
+                <CardDescription>
+                  Visualiza cómo cada factura se desvía del promedio del día.
+                </CardDescription>
+              </div>
+              {latestBillingPoint ? (
+                <Badge
+                  variant="outline"
+                  className="rounded-full border-transparent bg-primary/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-primary"
+                >
+                  Última: {latestBillingPoint.timeLabel}
+                </Badge>
+              ) : null}
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              La línea central marca el promedio diario; los picos hacia arriba
+              o abajo resaltan oscilaciones inmediatas en la facturación.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <DailyBillingChart
+              data={billingSeries.series}
+              averageValue={billingSeries.average}
+              formatCurrency={formatCurrency}
+            />
+          </CardContent>
+        </Card>
       </section>
-
       <section className="grid gap-6 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1fr)]">
         <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
           {" "}

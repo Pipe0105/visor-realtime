@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session, selectinload
 from app.models.branch import Branch
 from app.services.realtime_manager import realtime_manager
+import asyncio
+import uuid
 
 router = APIRouter()
 
@@ -90,6 +92,75 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
         asyncio.run(realtime_manager.broadcast(branch_code, payload))
 
     return {"message": "Invoice created successfully", "invoice_id": str(invoice.id)}
+
+@router.get("/daily-sales")
+def get_daily_sales(
+    days: int = Query(7, ge=1, le=90),
+    branch: str = Query("all"),
+    db: Session = Depends(get_db),
+):
+    """Return aggregated totals per day for the requested range."""
+
+    normalized_branch = (branch or "all").strip()
+    reference_date = datetime.now()
+    start_date = (
+        reference_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        - timedelta(days=max(days - 1, 0))
+    )
+
+    date_source = func.coalesce(Invoice.invoice_date, Invoice.created_at)
+    day_expression = func.date_trunc("day", date_source)
+
+    filters = [date_source >= start_date]
+
+    if normalized_branch.lower() != "all":
+        if normalized_branch.upper() == "FLO":
+            filters.append(Invoice.branch_id.is_(None))
+        else:
+            branch_filter = normalized_branch
+            try:
+                branch_uuid = uuid.UUID(branch_filter)
+                filters.append(Invoice.branch_id == branch_uuid)
+            except (ValueError, AttributeError):
+                branch_ids = select(Branch.id).where(
+                    func.lower(Branch.code) == branch_filter.lower()
+                )
+                filters.append(Invoice.branch_id.in_(branch_ids))
+
+    rows = (
+        db.query(
+            day_expression.label("day"),
+            func.coalesce(func.sum(Invoice.total), 0).label("total_sales"),
+            func.count(Invoice.id).label("invoice_count"),
+        )
+        .filter(*filters)
+        .group_by(day_expression)
+        .order_by(day_expression)
+        .all()
+    )
+
+    if not rows:
+        return {"history": [], "branch": normalized_branch, "days": days}
+
+    history = []
+    cumulative = 0.0
+    for day, total, invoice_count in rows:
+        if day is None:
+            continue
+        total_value = float(total or 0)
+        cumulative += total_value
+        history.append(
+            {
+                "date": day.date().isoformat(),
+                "total": total_value,
+                "cumulative": cumulative,
+                "invoices": int(invoice_count or 0),
+            }
+        )
+
+    return {"history": history, "branch": normalized_branch, "days": days}
+
+
 
 
 
