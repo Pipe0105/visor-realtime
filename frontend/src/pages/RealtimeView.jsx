@@ -449,7 +449,6 @@ function RealtimeView() {
           icon="📊"
         />
       </section>
-
       <section>
         <DailySalesChart data={dailySalesSeries} />
       </section>

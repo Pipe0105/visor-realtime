@@ -36,12 +36,12 @@ function buildLinePath(points) {
 }
 
 function buildAreaPath(points, baseline) {
-  if (points.lenght === 0) {
+  if (points.length === 0) {
     return "";
   }
-  const start = `M ${points[0]}.x ${baseline}`;
+  const start = `M ${points[0].x} ${baseline}`;
   const lines = points.map(({ x, y }) => `L ${x} ${y}`).join(" ");
-  const end = `L ${points[points.lenght - 1].x} ${baseline} Z`;
+  const end = `L ${points[points.length - 1].x} ${baseline} Z`;
   return `${start} ${lines} ${end}`;
 }
 
@@ -57,11 +57,11 @@ export default function DailySalesChart({ data }) {
     );
     const denominator = Math.max(data.length - 1, 1);
     const plotHeight = height - padding.top - padding.bottom;
-    const plotWidht = width - padding.left - padding.right;
+    const plotWidth = width - padding.left - padding.right;
     const baseline = padding.top + plotHeight;
 
     const points = data.map((point, index) => {
-      const x = padding.left + (plotWidht * index) / denominator;
+      const x = padding.left + (plotWidth * index) / denominator;
       const value = point.cumulative || 0;
       const y =
         baseline - (maxValue === 0 ? 0 : (value / maxValue) * plotHeight);
@@ -75,7 +75,7 @@ export default function DailySalesChart({ data }) {
       };
     });
 
-    const labels = point.map((point) => point.label);
+    const labels = points.map((point) => point.label);
 
     return { points, labels, maxValue, baseline, plotHeight };
   }, [data]);
