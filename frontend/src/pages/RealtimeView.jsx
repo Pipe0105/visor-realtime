@@ -60,14 +60,13 @@ function RealtimeView() {
   useEffect(() => {
     async function loadInvoices() {
       try {
-        const res = await fetch(
-          `http://127.0.0.1:8000/invoices/today?limit=${PAGE_SIZE}`
-        );
+        const res = await fetch(`http://127.0.0.1:8000/invoices/today`);
+
         const data = await res.json();
 
         if (Array.isArray(data)) {
           console.log("Facturas del día cargadas (modo legado):", data.length);
-          setMessages(data.slice(0, PAGE_SIZE));
+          setMessages(data);
           const total = data.reduce((sum, f) => sum + (f.total || 0), 0);
           const count = data.length;
           setDailySummary({
@@ -197,7 +196,7 @@ function RealtimeView() {
           return [data];
         }
 
-        return [data, ...prev.slice(0, PAGE_SIZE - 1)];
+        return [data, ...prev];
       });
     };
 
