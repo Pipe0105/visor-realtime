@@ -128,11 +128,21 @@ function RealtimeView() {
         }
 
         const payload = await response.json();
-        if (!cancelled) {
-          setDailySalesHistory(
-            Array.isArray(payload.history) ? payload.history : []
-          );
+        if (cancelled) {
+          return;
         }
+
+        if (Array.isArray(payload)) {
+          setDailySalesHistory(payload);
+          return;
+        }
+
+        if (Array.isArray(payload?.history)) {
+          setDailySalesHistory(payload.history);
+          return;
+        }
+
+        setDailySalesHistory([]);
       } catch (error) {
         console.error("Error cargando historial de ventas", error);
         if (!cancelled) {

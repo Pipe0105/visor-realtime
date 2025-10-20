@@ -222,6 +222,8 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
         label: data[index].timeLabel,
       }));
 
+    const xTicks = [];
+
     let lastAcceptedX = -Infinity;
     rawTicks.forEach((tick, idx) => {
       if (idx === 0) {
