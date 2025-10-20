@@ -108,10 +108,10 @@ def get_daily_sales(
         - timedelta(days=max(days - 1, 0))
     )
 
-    date_source = func.coalesce(Invoice.invoice_date, Invoice.created_at)
+    date_source = Invoice.invoice_date
     day_expression = func.date_trunc("day", date_source)
 
-    filters = [date_source >= start_date]
+    filters = [Invoice.invoice_date.isnot(None), date_source >= start_date]
 
     if normalized_branch.lower() != "all":
         if normalized_branch.upper() == "FLO":

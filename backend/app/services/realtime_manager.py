@@ -1,6 +1,5 @@
-from typing import List, Dict
-from fastapi import WebSocket
 from typing import List, Dict, Optional
+from fastapi import WebSocket
 import asyncio
 import json
 from datetime import datetime
@@ -12,6 +11,25 @@ class RealtimeManager:
         self.connections: Dict[str, List[WebSocket]] = {}
         self.daily_messages: Dict[str, List[dict]] = {}  # historial por sede (solo de hoy)
         self.loop: Optional[asyncio.AbstractEventLoop] = None
+        
+    @staticmethod
+    def _resolve_iso_timestamp(message: dict) -> str:
+        """Obtiene la marca de tiempo preferida para un mensaje."""
+
+        candidate = message.get("invoice_date") or message.get("timestamp")
+        if candidate:
+            return candidate
+        return datetime.now().isoformat()
+
+    @classmethod
+    def _message_date(cls, message: dict):
+        """Convierte la marca de tiempo en fecha (ignorando hora)."""
+
+        iso_value = cls._resolve_iso_timestamp(message)
+        try:
+            return datetime.fromisoformat(iso_value).date()
+        except (TypeError, ValueError):
+            return None
 
     def set_loop(self, loop: asyncio.AbstractEventLoop):
         """Guarda el event loop principal para reutilizarlo en hilos secundarios."""
@@ -31,7 +49,8 @@ class RealtimeManager:
         # Enviar facturas del día actual al conectar
         today = datetime.now().date()
         for msg in self.daily_messages[branch]:
-            if datetime.fromisoformat(msg["timestamp"]).date() == today:
+            if self._message_date(msg) == today:
+
                 await websocket.send_text(json.dumps(msg, ensure_ascii=False))
 
     async def disconnect(self, websocket: WebSocket, branch: str):
@@ -41,7 +60,7 @@ class RealtimeManager:
 
     async def broadcast(self, branch: str, message: dict):
         """Envía un mensaje JSON a todos los clientes de una sede y guarda solo los del día actual."""
-        message["timestamp"] = datetime.now().isoformat()
+        message["timestamp"] = self._resolve_iso_timestamp(message)
 
         if branch not in self.daily_messages:
             self.daily_messages[branch] = []
@@ -51,8 +70,7 @@ class RealtimeManager:
         today = datetime.now().date()
         self.daily_messages[branch] = [
             m for m in self.daily_messages[branch]
-            if datetime.fromisoformat(m["timestamp"]).date() == today
-        ]
+            if self._message_date(m) == today        ]
 
         if branch not in self.connections:
             return

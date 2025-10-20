@@ -173,14 +173,14 @@ function RealtimeView() {
       const today = new Date().toISOString().slice(0, 10);
       const nextMessageDay = (value) => (value ? value.slice(0, 10) : null);
       const messageDay =
-        nextMessageDay(data.timestamp) ||
         nextMessageDay(data.invoice_date) ||
+        nextMessageDay(data.timestamp) ||
         today;
 
       setMessages((prev) => {
         const previousDay = prev[0]
-          ? nextMessageDay(prev[0].timestamp) ||
-            nextMessageDay(prev[0].invoice_date) ||
+          ? nextMessageDay(prev[0].invoice_date) ||
+            nextMessageDay(prev[0].timestamp) ||
             today
           : today;
         const isNewDay = prev.length > 0 && messageDay !== previousDay;
@@ -211,7 +211,7 @@ function RealtimeView() {
         const normalized = {
           ...data,
           timestamp:
-            data.timestamp ?? data.invoice_date ?? data.created_at ?? null,
+            data.invoice_date ?? data.timestamp ?? data.created_at ?? null,
         };
 
         if (isNewDay) {
@@ -284,7 +284,7 @@ function RealtimeView() {
     const entries = messages
       .map((msg, idx) => {
         const isoTimestamp =
-          msg.timestamp || msg.invoice_date || msg.created_at || null;
+          msg.invoice_date || msg.timestamp || msg.created_at || null;
         if (!isoTimestamp) {
           return null;
         }
