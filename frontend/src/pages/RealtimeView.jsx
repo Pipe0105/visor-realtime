@@ -161,13 +161,20 @@ function RealtimeView() {
       console.log("📩 Mensaje recibido:", data);
 
       const today = new Date().toISOString().slice(0, 10);
-      const invoceDay = data.timestamp ? data.timestamp.slice(0, 10) : today;
+      const nextMessageDay = (value) => (value ? value.slice(0, 10) : null);
+      const messageDay =
+        nextMessageDay(data.timestamp) ||
+        nextMessageDay(data.invoice_date) ||
+        today;
 
       setMessages((prev) => {
-        const firstDay = prev[0]?.timestamp
-          ? prev[0].timestamp.slice(0, 10)
+        const previousDay = prev[0]
+          ? nextMessageDay(prev[0].timestamp) ||
+            nextMessageDay(prev[0].invoice_date) ||
+            today
           : today;
-        const isNewDay = prev.length > 0 && invoceDay !== firstDay;
+        const isNewDay = prev.length > 0 && messageDay !== previousDay;
+
         const invoiceTotal = toNumber(data.total);
 
         setDailySummary((prevSummary) => {
@@ -191,12 +198,17 @@ function RealtimeView() {
             averageTicket: totalInvoices ? totalSales / totalInvoices : 0,
           };
         });
+        const normalized = {
+          ...data,
+          timestamp:
+            data.timestamp ?? data.invoice_date ?? data.created_at ?? null,
+        };
 
         if (isNewDay) {
-          return [data];
+          return [normalized];
         }
 
-        return [data, ...prev];
+        return [normalized, ...prev];
       });
     };
 
@@ -261,7 +273,8 @@ function RealtimeView() {
 
     const entries = messages
       .map((msg, idx) => {
-        const isoTimestamp = msg.timestamp || msg.invoice_date;
+        const isoTimestamp =
+          msg.timestamp || msg.invoice_date || msg.created_at || null;
         if (!isoTimestamp) {
           return null;
         }
@@ -512,6 +525,7 @@ function RealtimeView() {
         const baseDate =
           (msg.invoice_date && msg.invoice_date.slice(0, 10)) ||
           (msg.timestamp && msg.timestamp.slice(0, 10)) ||
+          (msg.created_at && msg.created_at.slice(0, 10)) ||
           todayKey;
         const totalValue = toNumber(msg.total);
         liveTotalsByDay.set(
