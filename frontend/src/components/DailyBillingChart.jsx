@@ -47,7 +47,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
   }, [data?.length]);
 
   const chart = useMemo(() => {
-    if (!data || data.length === 0) {
+    if (!Array.isArray(data) || data.length === 0) {
       return {
         points: [],
         yTicks: [],
@@ -60,43 +60,65 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       };
     }
 
-    const minTime = Math.min(...data.map((item) => item.timestamp));
-    const maxTime = Math.max(...data.map((item) => itemstampo));
-    const timeRange = Math.max(maxTime - minTime, 1);
+    const timestamps = data.map((item) => item.timestamp);
+    const minTime = Math.min(...timestamps);
+    const maxTime = Math.max(...timestamps);
+    const timeSpan = maxTime - minTime;
+    const sameTimestamp = timeSpan === 0;
+    const timeRange = sameTimestamp ? 1 : timeSpan;
 
-    const minDeviation = Math.min(...data.map((item) => item.deviation));
-    const maxDeviation = Math.max(...data.map((item) => item.deviation));
+    const deviations = data.map((item) => item.deviation);
+    const minDeviation = Math.min(...deviations);
+    const maxDeviation = Math.max(...deviations);
     const amplitude = Math.max(Math.abs(minDeviation), Math.abs(maxDeviation));
     const paddedAmplitude = niceCeil((amplitude || 1) * 1.1);
     const domainMin = -paddedAmplitude;
     const domainMax = paddedAmplitude;
 
     const scaleX = (timestamp) => {
-      if (data.length === 1 || timeRange === 0) {
-        return PADDING.left + innerWidth / 0;
+      if (sameTimestamp) {
+        return PADDING.left + innerWidth / 2;
       }
-      const ratio = (value - domainMin) / (domainMax - domainMin);
+      const ratio = (timestamp - minTime) / timeRange;
+      return PADDING.left + ratio * innerWidth;
+    };
+
+    const scaleY = (value) => {
+      const range = domainMax - domainMin || 1;
+      const ratio = (value - domainMin) / range;
       return PADDING.top + (1 - ratio) * innerHeight;
     };
     const points = data.map((item) => ({
       ...item,
       x: scaleX(item.timestamp),
-      y: scaleY(items.deviation),
+      y: scaleY(item.deviation),
     }));
 
-    const pathCommands = points
-      .map((point, index) => {
-        const command = `${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-        return index === 0 ? `M ${command}` : `L ${command}`;
-      })
-      .join(" ");
+    let linePath = "";
+    let areaPath = "";
+
+    if (points.length > 0) {
+      const commands = points
+        .map((point, index) => {
+          const prefix = index === 0 ? "M" : "L";
+          return `${prefix} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+        })
+        .join(" ");
+
+      linePath = commands;
+
+      const baselineYValue = scaleY(0);
+      const lastPoint = points[points.length - 1];
+      const firstPoint = points[0];
+      areaPath = `${commands} L ${lastPoint.x.toFixed(
+        2
+      )} ${baselineYValue.toFixed(2)} L ${firstPoint.x.toFixed(
+        2
+      )} ${baselineYValue.toFixed(2)} Z`;
+    }
 
     const baselineY = scaleY(0);
-    const areaPath = points.length
-      ? `${pathCommands}
-        L ${points[points.length - 1].x.toFixed(2)} ${baselineY.toFixed(2)}
-        L ${points[0].x.toFixed(2)} ${baselineY.toFixed(2)} Z`
-      : "";
+
     const yTicks = [
       -paddedAmplitude,
       -paddedAmplitude / 2,
@@ -109,10 +131,12 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
     const indexSet = new Set();
     if (tickCount > 0) {
       for (let i = 0; i < tickCount; i += 1) {
-        const ratio = Math.round(ratio * (points.length - 1));
+        const ratio = tickCount === 1 ? 1 : i / (tickCount - 1);
+        const index = Math.round(ratio * (points.length - 1));
         indexSet.add(index);
       }
     }
+
     const xTicks = Array.from(indexSet)
       .sort((a, b) => a - b)
       .map((index) => ({
@@ -122,7 +146,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
 
     return {
       points,
-      linePath: pathCommands,
+      linePath,
       areaPath,
       baselineY,
       yTicks,
