@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import DailySalesChart from "../components/DailySalesChart";
 import MetricCard from "../components/MetricCard";
 import { Badge } from "../components/badge";
 import { Button } from "../components/button";
@@ -49,6 +50,8 @@ function RealtimeView() {
     maxItems: "",
   });
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
+
+  const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   useEffect(() => {
     async function loadInvoices() {
@@ -313,6 +316,46 @@ function RealtimeView() {
     return count;
   }, [filters]);
 
+  const dailySalesSeries = useMemo(() => {
+    if (messages.length === 0) {
+      if (dailySummary.totalSales > 0) {
+        const fallbackTotal = toNumber(dailySummary.totalSales);
+        return [
+          {
+            date: todayKey,
+            total: fallbackTotal,
+            cumulative: fallbackTotal,
+          },
+        ];
+      }
+      return [];
+    }
+
+    const totalsByDay = new Map();
+    messages.forEach((msg) => {
+      const baseDate =
+        (msg.invoice_date && msg.invoice_date.slice(0, 10)) ||
+        (msg.timestamp && msg.timestamp.slice(0, 10)) ||
+        todayKey;
+      const totalValue = toNumber(msg.total);
+      totalsByDay.set(baseDate, (totalsByDay.get(baseDate) || 0) + totalValue);
+    });
+
+    const sortedByDay = Array.from(totalsByDay.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0])
+    );
+
+    let cumulative = 0;
+    return sortedByDay.map(([date, total]) => {
+      cumulative += total;
+      return {
+        date,
+        total,
+        cumulative,
+      };
+    });
+  }, [dailySummary.totalSales, messages, todayKey]);
+
   const invoicesCountLabel = (() => {
     if (messages.length === 0) {
       return "Sin facturas registradas";
@@ -405,6 +448,10 @@ function RealtimeView() {
           color="text-amber-500"
           icon="📊"
         />
+      </section>
+
+      <section>
+        <DailySalesChart data={dailySalesSeries} />
       </section>
 
       <section className="grid gap-6 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1fr)]">
