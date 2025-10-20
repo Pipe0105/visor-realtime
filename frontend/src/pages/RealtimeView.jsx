@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import DailySalesChart from "../components/DailySalesChart";
 import MetricCard from "../components/MetricCard";
 import { Badge } from "../components/badge";
-import { Button } from "../components/button";
+import { Button, buttonVariants } from "../components/button";
 import DailyBillingChart from "../components/DailyBillingChart";
 
 import {
@@ -53,6 +53,7 @@ function RealtimeView() {
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
   const [dailySalesHistory, setDailySalesHistory] = useState([]);
   const [activePanel, setActivePanel] = useState("facturas");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -420,6 +421,76 @@ function RealtimeView() {
     });
   }, [filters, messages]);
 
+  const totalFilteredInvoices = filteredMessages.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredInvoices / PAGE_SIZE));
+
+  const paginatedMessages = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredMessages.slice(start, start + PAGE_SIZE);
+  }, [currentPage, filteredMessages]);
+
+  const pageRangeStart =
+    totalFilteredInvoices === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const pageRangeEnd =
+    totalFilteredInvoices === 0
+      ? 0
+      : Math.min(
+          pageRangeStart + paginatedMessages.length - 1,
+          totalFilteredInvoices
+        );
+
+  const paginationRange = useMemo(() => {
+    const siblingCount = 1;
+    const totalPageNumbers = siblingCount * 2 + 5;
+
+    if (totalPages <= totalPageNumbers) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    const leftSiblingIndex = Math.max(currentPage - siblingCount, 1);
+    const rightSiblingIndex = Math.min(currentPage + siblingCount, totalPages);
+
+    const shouldShowLeftEllipsis = leftSiblingIndex > 2;
+    const shouldShowRightEllipsis = rightSiblingIndex < totalPages - 1;
+
+    if (!shouldShowLeftEllipsis && shouldShowRightEllipsis) {
+      const leftItemCount = 3 + siblingCount * 2;
+      return [
+        ...Array.from({ length: leftItemCount }, (_, index) => index + 1),
+        "end-ellipsis",
+        totalPages,
+      ];
+    }
+
+    if (shouldShowLeftEllipsis && !shouldShowRightEllipsis) {
+      const rightItemCount = 3 + siblingCount * 2;
+      return [
+        1,
+        "start-ellipsis",
+        ...Array.from(
+          { length: rightItemCount },
+          (_, index) => totalPages - rightItemCount + index + 1
+        ),
+      ];
+    }
+
+    const middleRange = Array.from(
+      { length: siblingCount * 2 + 1 },
+      (_, index) => leftSiblingIndex + index
+    );
+
+    return [1, "start-ellipsis", ...middleRange, "end-ellipsis", totalPages];
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage((prev) => {
+      if (prev < 1) {
+        return 1;
+      }
+      return Math.min(prev, totalPages);
+    });
+  }, [totalPages]);
+
   const activeFiltersCount = useMemo(() => {
     let count = 0;
     if (filters.query.trim()) count += 1;
@@ -518,6 +589,7 @@ function RealtimeView() {
 
   const handleFilterChange = (field) => (event) => {
     const value = event.target.value;
+    setCurrentPage(1);
     setFilters((prev) => ({
       ...prev,
       [field]: value,
@@ -525,6 +597,7 @@ function RealtimeView() {
   };
 
   const handleResetFilters = () => {
+    setCurrentPage(1);
     setFilters({
       query: "",
       branch: "all",
@@ -856,7 +929,7 @@ function RealtimeView() {
                 </div>
               ) : (
                 <ul className="space-y-2">
-                  {filteredMessages.map((msg, i) => {
+                  {paginatedMessages.map((msg, i) => {
                     const isSelected = selectedInvoices === msg.invoice_number;
                     const invoiceDate = msg.invoice_date
                       ? new Date(msg.invoice_date).toLocaleString("es-CO", {
@@ -921,6 +994,88 @@ function RealtimeView() {
                     );
                   })}
                 </ul>
+                <div className="mt-6 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-600 dark:text-slate-400">
+                  <p>
+                    {totalFilteredInvoices === 0
+                      ? "Sin facturas para mostrar"
+                      : `Mostrando ${
+                          pageRangeStart === pageRangeEnd
+                            ? pageRangeStart
+                            : `${pageRangeStart}-${pageRangeEnd}`
+                        } de ${totalFilteredInvoices} factura${
+                          totalFilteredInvoices === 1 ? "" : "s"
+                        }`}
+                  </p>
+                  {totalPages > 1 ? (
+                    <div
+                      className="flex items-center gap-2"
+                      role="navigation"
+                      aria-label="Paginación de facturas"
+                    >
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        className="h-9 gap-1 px-3"
+                      >
+                        <span aria-hidden="true">←</span>
+                        <span className="hidden sm:inline">Anterior</span>
+                      </Button>
+                      {paginationRange.map((item, index) => {
+                        if (typeof item === "number") {
+                          return (
+                            <button
+                              key={`page-${item}`}
+                              type="button"
+                              onClick={() => setCurrentPage(item)}
+                              className={buttonVariants({
+                                variant: item === currentPage ? "default" : "outline",
+                                size: "sm",
+                                className: cn(
+                                  "h-9 w-9 px-0",
+                                  item === currentPage
+                                    ? "shadow-sm"
+                                    : "bg-background dark:bg-slate-900"
+                                ),
+                              })}
+                              aria-current={item === currentPage ? "page" : undefined}
+                              aria-label={`Ir a la página ${item}`}
+                            >
+                              {item}
+                            </button>
+                          );
+                        }
+
+                        return (
+                          <span
+                            key={`${item}-${index}`}
+                            className="inline-flex h-9 w-9 items-center justify-center text-slate-400"
+                            aria-hidden="true"
+                          >
+                            …
+                          </span>
+                        );
+                      })}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setCurrentPage((prev) =>
+                            Math.min(prev + 1, totalPages)
+                          )
+                        }
+                        disabled={currentPage === totalPages}
+                        className="h-9 gap-1 px-3"
+                      >
+                        <span className="hidden sm:inline">Siguiente</span>
+                        <span aria-hidden="true">→</span>
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
               )}
             </CardContent>
           </Card>
