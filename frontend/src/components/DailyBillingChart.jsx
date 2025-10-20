@@ -25,18 +25,20 @@ function niceCeil(value) {
   return nice * factor;
 }
 
-function formatDeviation(value, formatCurrency) {
-  if (!Number.isFinite(value)) {
-    return "-";
+function niceFloor(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
   }
-  const absFormatted = formatCurrency(Math.abs(value));
-  if (value > 0) {
-    return `+${absFormatted}`;
-  }
-  if (value < 0) {
-    return `-${absFormatted}`;
-  }
-  return formatCurrency(0);
+  const exponent = Math.floor(Math.log10(value));
+  const factor = Math.pow(10, exponent);
+  const normalized = value / factor;
+
+  let nice;
+  if (normalized >= 5) nice = 5;
+  else if (normalized >= 2) nice = 2;
+  else nice = 1;
+
+  return nice * factor;
 }
 
 function DailyBillingChart({ data, averageValue, formatCurrency }) {
@@ -52,10 +54,10 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
         points: [],
         yTicks: [],
         xTicks: [],
-        baselineY: PADDING.top + innerHeight / 2,
+        baselineY: PADDING.top + innerHeight,
         areaPath: "",
         linePath: "",
-        domainMin: -1,
+        domainMin: 0,
         domainMax: 1,
       };
     }
@@ -67,13 +69,26 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
     const sameTimestamp = timeSpan === 0;
     const timeRange = sameTimestamp ? 1 : timeSpan;
 
-    const deviations = data.map((item) => item.deviation);
-    const minDeviation = Math.min(...deviations);
-    const maxDeviation = Math.max(...deviations);
-    const amplitude = Math.max(Math.abs(minDeviation), Math.abs(maxDeviation));
-    const paddedAmplitude = niceCeil((amplitude || 1) * 1.1);
-    const domainMin = -paddedAmplitude;
-    const domainMax = paddedAmplitude;
+    const values = data.map((item) => Number(item.total) || 0);
+    const rawMin = Math.min(...values);
+    const rawMax = Math.max(...values);
+
+    let domainMin;
+    let domainMax;
+
+    if (rawMin === rawMax) {
+      const buffer = rawMin === 0 ? 1 : Math.max(rawMin * 0.1, 1);
+      domainMin = Math.max(0, rawMin - buffer);
+      domainMax = rawMax + buffer;
+    } else {
+      const range = rawMax - rawMin;
+      const buffer = Math.max(range * 0.15, 1);
+      domainMin = rawMin - buffer;
+      domainMax = rawMax + buffer;
+    }
+
+    domainMin = Math.max(0, Math.min(rawMin, niceFloor(domainMin)));
+    domainMax = Math.max(domainMin + 1, niceCeil(domainMax));
 
     const scaleX = (timestamp) => {
       if (sameTimestamp) {
@@ -88,11 +103,15 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       const ratio = (value - domainMin) / range;
       return PADDING.top + (1 - ratio) * innerHeight;
     };
-    const points = data.map((item) => ({
-      ...item,
-      x: scaleX(item.timestamp),
-      y: scaleY(item.deviation),
-    }));
+    const points = data.map((item) => {
+      const value = Number(item.total) || 0;
+      return {
+        ...item,
+        value,
+        x: scaleX(item.timestamp),
+        y: scaleY(value),
+      };
+    });
 
     let linePath = "";
     let areaPath = "";
@@ -107,7 +126,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
 
       linePath = commands;
 
-      const baselineYValue = scaleY(0);
+      const baselineYValue = scaleY(domainMin);
       const lastPoint = points[points.length - 1];
       const firstPoint = points[0];
       areaPath = `${commands} L ${lastPoint.x.toFixed(
@@ -117,15 +136,16 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       )} ${baselineYValue.toFixed(2)} Z`;
     }
 
-    const baselineY = scaleY(0);
+    const baselineY = scaleY(domainMin);
 
-    const yTicks = [
-      -paddedAmplitude,
-      -paddedAmplitude / 2,
-      0,
-      paddedAmplitude / 2,
-      paddedAmplitude,
-    ];
+    const yTickCount = 5;
+    const yTicks = Array.from({ length: yTickCount }, (_, index) => {
+      if (yTickCount === 1) {
+        return domainMax;
+      }
+      const ratio = index / (yTickCount - 1);
+      return domainMin + ratio * (domainMax - domainMin);
+    });
 
     const tickCount = Math.min(4, points.length);
     const indexSet = new Set();
@@ -159,6 +179,12 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
   const focusIndex =
     hoverIndex ?? (data && data.length ? data.length - 1 : null);
   const focusPoint = focusIndex != null && data ? data[focusIndex] : null;
+  const previousPoint =
+    focusPoint && focusIndex > 0 && data ? data[focusIndex - 1] : null;
+  const deltaValue =
+    previousPoint && focusPoint
+      ? (Number(focusPoint.total) || 0) - (Number(previousPoint.total) || 0)
+      : null;
 
   const handlePointerMove = useCallback(
     (event) => {
@@ -210,19 +236,32 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
                 : "Movimiento"}
             </p>
             <p className="mt-1 text-base font-semibold text-slate-900 dark:text-foreground">
-              {formatCurrency(focusPoint.total)}
+              {formatCurrency(Number(focusPoint.total) || 0)}
             </p>
-            <p
-              className={cn(
-                "text-[11px] font-medium",
-                focusPoint.deviation >= 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-rose-500 dark:text-rose-400"
-              )}
-            >
-              {formatDeviation(focusPoint.deviation, formatCurrency)} vs
-              promedio
-            </p>
+            {previousPoint ? (
+              <p
+                className={cn(
+                  "mt-1 text-[11px] font-medium",
+                  deltaValue === 0
+                    ? "text-slate-500 dark:text-slate-400"
+                    : deltaValue > 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-rose-500 dark:text-rose-400"
+                )}
+              >
+                {deltaValue === 0
+                  ? "Sin cambios"
+                  : `${deltaValue > 0 ? "+" : "-"}${formatCurrency(
+                      Math.abs(deltaValue)
+                    )}`}{" "}
+                vs anterior
+              </p>
+            ) : null}
+            {focusPoint.branch ? (
+              <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400 dark:text-slate-500">
+                {focusPoint.branch}
+              </p>
+            ) : null}
             <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
               {focusPoint.tooltipLabel}
             </p>
@@ -272,7 +311,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
                   textAnchor="end"
                   className="fill-current text-[11px] font-medium"
                 >
-                  {formatDeviation(tick, formatCurrency)}
+                  {formatCurrency(Math.max(0, tick))}
                 </text>
               </g>
             );
