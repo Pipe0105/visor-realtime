@@ -1012,7 +1012,7 @@ function RealtimeView() {
                     </p>
                     {totalPages > 1 ? (
                       <div
-                        className="flex items-center gap-2"
+                        className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto"
                         role="navigation"
                         aria-label="Paginación de facturas"
                       >
