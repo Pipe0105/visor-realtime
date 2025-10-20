@@ -116,7 +116,8 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
 
     // Extiende el rango proporcionalmente al tamaño real
     // (20% extra si hay suficiente espacio, o al menos 5 minutos)
-    const extraRange = Math.max(timeSpan * 0.2, 5 * 60 * 1000);
+    const MIN_EXTRA_RANGE_MS = 30 * 60 * 1000;
+    const extraRange = Math.max(timeSpan * 0.3, MIN_EXTRA_RANGE_MS);
     const adjustedMinTime = minTime - extraRange;
     const adjustedMaxTime = maxTime + extraRange;
 
@@ -202,7 +203,9 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       return domainMin + ratio * (domainMax - domainMin);
     });
 
-    const tickCount = Math.min(100, points.length);
+    const MIN_TICK_GAP = 56; // px
+    const maxTicksBySpace = Math.max(1, Math.floor(innerWidth / MIN_TICK_GAP));
+    const tickCount = Math.min(points.length, maxTicksBySpace);
     const indexSet = new Set();
     if (tickCount > 0) {
       for (let i = 0; i < tickCount; i += 1) {
@@ -212,12 +215,45 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       }
     }
 
-    const xTicks = Array.from(indexSet)
+    const rawTicks = Array.from(indexSet)
       .sort((a, b) => a - b)
       .map((index) => ({
         x: points[index].x,
         label: data[index].timeLabel,
       }));
+
+    let lastAcceptedX = -Infinity;
+    rawTicks.forEach((tick, idx) => {
+      if (idx === 0) {
+        xTicks.push(tick);
+        lastAcceptedX = tick.x;
+        return;
+      }
+
+      const isLast = idx === rawTicks.length - 1;
+      const hasGap = tick.x - lastAcceptedX >= MIN_TICK_GAP;
+
+      if (isLast) {
+        if (!xTicks.length || xTicks[xTicks.length - 1].x !== tick.x) {
+          if (!hasGap && xTicks.length > 1) {
+            xTicks[xTicks.length - 1] = tick;
+          } else {
+            xTicks.push(tick);
+          }
+        }
+        lastAcceptedX = tick.x;
+        return;
+      }
+
+      if (hasGap) {
+        xTicks.push(tick);
+        lastAcceptedX = tick.x;
+      }
+    });
+
+    if (rawTicks.length === 1 && xTicks.length === 0) {
+      xTicks.push(rawTicks[0]);
+    }
 
     return {
       points,
