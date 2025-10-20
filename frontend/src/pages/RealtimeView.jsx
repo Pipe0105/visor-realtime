@@ -73,7 +73,253 @@ function RealtimeView() {
         console.log(
           "Facturas del día cargadas:",
           Array.isArray(data.invoices) ? data.invoices.length : 0
-@@ -322,50 +323,54 @@ function RealtimeView() {
+        );
+
+        setMessages(Array.isArray(data.invoices) ? data.invoices : []);
+        const totalSales = toNumber(data.total_sales);
+        const totalInvoices = Math.trunc(toNumber(data.total_invoices));
+        const averageTicket = toNumber(
+          data.average_ticket ??
+            (totalInvoices ? totalSales / totalInvoices : 0)
+        );
+        setDailySummary({
+          totalSales,
+          totalInvoices,
+          averageTicket,
+        });
+      } catch (err) {
+        console.error("Error cargando facturas", err);
+        setMessages([]);
+        setDailySummary({
+          totalSales: 0,
+          totalInvoices: 0,
+          averageTicket: 0,
+        });
+      }
+    }
+
+    loadInvoices();
+  }, []);
+
+  useEffect(() => {
+    const ws = new WebSocket("ws://127.0.0.1:8000/ws/FLO");
+
+    ws.onopen = () => {
+      setStatus("Conectado 🟢");
+      console.log("✅ WebSocket conectado");
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log("📩 Mensaje recibido:", data);
+
+      const today = new Date().toISOString().slice(0, 10);
+      const invoceDay = data.timestamp ? data.timestamp.slice(0, 10) : today;
+
+      setMessages((prev) => {
+        const firstDay = prev[0]?.timestamp
+          ? prev[0].timestamp.slice(0, 10)
+          : today;
+        const isNewDay = prev.length > 0 && invoceDay !== firstDay;
+        const invoiceTotal = toNumber(data.total);
+
+        setDailySummary((prevSummary) => {
+          if (isNewDay) {
+            console.log("Nuevo dia detectado - reiniciando resumen diario");
+            return {
+              totalSales: invoiceTotal,
+              totalInvoices: 1,
+              averageTicket: invoiceTotal,
+            };
+          }
+
+          const baseSales = prevSummary?.totalSales || 0;
+          const baseInvoices = prevSummary?.totalInvoices || 0;
+          const totalSales = baseSales + invoiceTotal;
+          const totalInvoices = baseInvoices + 1;
+
+          return {
+            totalSales,
+            totalInvoices,
+            averageTicket: totalInvoices ? totalSales / totalInvoices : 0,
+          };
+        });
+
+        if (isNewDay) {
+          return [data];
+        }
+
+        return [data, ...prev.slice(0, PAGE_SIZE - 1)];
+      });
+    };
+
+    ws.onclose = () => {
+      setStatus("Desconectado 🔴");
+      console.log("⚠️ WebSocket cerrado");
+    };
+
+    return () => ws.close();
+  }, []);
+
+  async function handleInvoiceClick(invoice_number) {
+    if (selectedInvoices === invoice_number) {
+      setSelectedInvoices(null);
+      setInvoicesItems([]);
+      return;
+    }
+
+    setInvoicesItems([]);
+    setLoadingItems(true);
+    setSelectedInvoices(invoice_number);
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:8000/invoices/${invoice_number}/items`
+      );
+      const data = await res.json();
+      if (data.items) {
+        setInvoicesItems(data.items);
+      } else {
+        setInvoicesItems([]);
+      }
+    } catch (err) {
+      console.error("error cargando items", err);
+      setInvoicesItems([]);
+    } finally {
+      setLoadingItems(false);
+    }
+  }
+
+  const summary = {
+    total: dailySummary.totalSales,
+    count: dailySummary.totalInvoices,
+    avg: dailySummary.averageTicket,
+  };
+
+  const connectionHealthy = status.includes("🟢");
+
+  const selectedInvoiceData = selectedInvoices
+    ? messages.find((msg) => msg.invoice_number === selectedInvoices)
+    : null;
+  const detailItemsCount =
+    invoiceItems.length > 0
+      ? invoiceItems.length
+      : selectedInvoiceData?.items ?? 0;
+  const detailComputedTotal =
+    invoiceItems.length > 0
+      ? invoiceItems.reduce((sum, item) => sum + (item.subtotal || 0), 0)
+      : selectedInvoiceData?.total ?? 0;
+  const selectedInvoiceDate = selectedInvoiceData?.invoice_date
+    ? new Date(selectedInvoiceData.invoice_date).toLocaleString("es-CO", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
+  const selectedInvoiceMeta = selectedInvoiceData
+    ? [
+        selectedInvoiceDate ? `Emitida ${selectedInvoiceDate}` : null,
+        `${detailItemsCount} ${detailItemsCount === 1 ? "ítem" : "ítems"}`,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+  const availableBranches = useMemo(() => {
+    const branchSet = new Set();
+    messages.forEach((msg) => {
+      branchSet.add(msg.branch || "FLO");
+    });
+    return Array.from(branchSet).sort((a, b) => a.localeCompare(b));
+  }, [messages]);
+
+  const totalsRange = useMemo(() => {
+    if (messages.length === 0) {
+      return { min: 0, max: 0 };
+    }
+    return messages.reduce(
+      (acc, msg) => {
+        const value = toNumber(msg.total);
+        return {
+          min: Math.min(acc.min, value),
+          max: Math.max(acc.max, value),
+        };
+      },
+      { min: Number.POSITIVE_INFINITY, max: 0 }
+    );
+  }, [messages]);
+
+  const itemsRange = useMemo(() => {
+    if (messages.length === 0) {
+      return { min: 0, max: 0 };
+    }
+    return messages.reduce(
+      (acc, msg) => {
+        const value = toNumber(msg.items);
+        return {
+          min: Math.min(acc.min, value),
+          max: Math.max(acc.max, value),
+        };
+      },
+      { min: Number.POSITIVE_INFINITY, max: 0 }
+    );
+  }, [messages]);
+
+  const filteredMessages = useMemo(() => {
+    if (messages.length === 0) {
+      return [];
+    }
+
+    const normalizedQuery = filters.query.trim().toLowerCase();
+    const minTotal =
+      filters.minTotal !== "" ? toNumber(filters.minTotal) : null;
+    const maxTotal =
+      filters.maxTotal !== "" ? toNumber(filters.maxTotal) : null;
+    const minItems =
+      filters.minItems !== "" ? toNumber(filters.minItems) : null;
+    const maxItems =
+      filters.maxItems !== "" ? toNumber(filters.maxItems) : null;
+
+    return messages.filter((msg) => {
+      const matchesQuery = normalizedQuery
+        ? `${msg.invoice_number}`.toLowerCase().includes(normalizedQuery)
+        : true;
+      const matchesBranch =
+        filters.branch === "all" || (msg.branch || "FLO") === filters.branch;
+
+      const totalValue = toNumber(msg.total);
+      const itemsValue = toNumber(msg.items);
+
+      const matchesMinTotal = minTotal === null || totalValue >= minTotal;
+      const matchesMaxTotal = maxTotal === null || totalValue <= maxTotal;
+      const matchesMinItems = minItems === null || itemsValue >= minItems;
+      const matchesMaxItems = maxItems === null || itemsValue <= maxItems;
+
+      return (
+        matchesQuery &&
+        matchesBranch &&
+        matchesMinTotal &&
+        matchesMaxTotal &&
+        matchesMinItems &&
+        matchesMaxItems
+      );
+    });
+  }, [filters, messages]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filters.query.trim()) count += 1;
+    if (filters.branch !== "all") count += 1;
+    if (filters.minTotal !== "" || filters.maxTotal !== "") count += 1;
+    if (filters.minItems !== "" || filters.maxItems !== "") count += 1;
+    return count;
+  }, [filters]);
+
+  const invoicesCountLabel = (() => {
+    if (messages.length === 0) {
+      return "Sin facturas registradas";
+    }
+    if (activeFiltersCount > 0) {
+      return `${filteredMessages.length} de ${messages.length} ${
+        messages.length === 1 ? "factura" : "facturas"
+      }`;
     }
     return `${messages.length} ${
       messages.length === 1 ? "factura" : "facturas"
@@ -128,7 +374,16 @@ function RealtimeView() {
           </h2>
           <p className="max-w-2xl text-sm text-slate-700 dark:text-slate-400">
             Sigue la actividad comercial de la sede y consulta los detalles de
-@@ -382,174 +387,210 @@ function RealtimeView() {
+            cada factura sin perder de vista el panel principal.
+          </p>
+        </div>
+        <Badge
+          variant={connectionHealthy ? "success" : "danger"}
+          className="justify-center self-start rounded-full px-4 py-1.5 text-sm font-semibold shadow-sm"
+        >
+          {status}
+        </Badge>
+      </section>
 
       <section className="grid gap-4 md:grid-cols-3">
         <MetricCard
@@ -211,23 +466,6 @@ function RealtimeView() {
                         placeholder="Ej. 001-2024"
                         className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                       />
-                    </div>
-                    <div className="min-w-[10rem] flex-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-                        Sucursal
-                      </label>
-                      <select
-                        value={filters.branch}
-                        onChange={handleFilterChange("branch")}
-                        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                      >
-                        <option value="all">Todas</option>
-                        {availableBranches.map((branch) => (
-                          <option key={branch} value={branch}>
-                            {branch}
-                          </option>
-                        ))}
-                      </select>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-3">
@@ -537,3 +775,5 @@ function RealtimeView() {
     </div>
   );
 }
+
+export default RealtimeView;
