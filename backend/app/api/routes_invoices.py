@@ -6,6 +6,11 @@ from app.database import get_db
 from app.models.invoice import Invoice
 from app.models.invoice_item import InvoiceItem
 from app.schemas.invoice_schema import InvoiceCreate
+import asyncio
+from datetime import datetime, timedelta
+from sqlalchemy.orm import Session, selectinload
+from app.models.branch import Branch
+from app.services.realtime_manager import realtime_manager
 
 router = APIRouter()
 
@@ -37,7 +42,8 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
         vat=data.vat,
         discount=data.discount,
         total=data.total,
-        source_file=data.source_file
+        source_file=data.source_file,
+        invoice_date=data.invoice_date,
     )
     db.add(invoice)
     db.commit()
@@ -57,6 +63,32 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
         db.add(db_item)
 
     db.commit()
+    branch_code = "FLO"
+    if invoice.branch_id:
+        branch = db.query(Branch).filter(Branch.id == invoice.branch_id).first()
+        if branch and branch.code:
+            branch_code = branch.code
+        else:
+            branch_code = str(invoice.branch_id)
+
+    payload = {
+        "event": "new_invoice",
+        "invoice_number": invoice.number,
+        "items": len(data.items),
+        "total": float(invoice.total or 0),
+        "file": invoice.source_file,
+        "invoice_date": invoice.invoice_date.isoformat() if invoice.invoice_date else None,
+        "branch": branch_code,
+    }
+
+    loop = realtime_manager.loop
+    if loop and loop.is_running():
+        asyncio.run_coroutine_threadsafe(
+            realtime_manager.broadcast(branch_code, payload), loop
+        )
+    else:
+        asyncio.run(realtime_manager.broadcast(branch_code, payload))
+
     return {"message": "Invoice created successfully", "invoice_id": str(invoice.id)}
 
 
