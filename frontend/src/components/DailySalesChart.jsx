@@ -81,7 +81,8 @@ export default function DailySalesChart({ data }) {
   }, [data]);
 
   return (
-    <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+    <Card className="w-full border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+      {" "}
       <CardHeader className="space-y-2">
         <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
           Evolución de ventas

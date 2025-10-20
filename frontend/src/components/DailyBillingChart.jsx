@@ -1,9 +1,22 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "../lib/utils";
 
-const WIDTH = 720;
-const HEIGHT = 260;
+const DEFAULT_DIMENSIONS = { width: 720, height: 260 };
 const PADDING = { top: 28, right: 28, bottom: 44, left: 60 };
+
+const axisCurrencyFormatter = new Intl.NumberFormat("es-CO", {
+  style: "currency",
+  currency: "COP",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 1,
+  notation: "compact",
+});
 
 const innerWidth = WIDTH - PADDING.left - PADDING.right;
 const innerHeight = HEIGHT - PADDING.top - PADDING.bottom;
@@ -43,10 +56,47 @@ function niceFloor(value) {
 
 function DailyBillingChart({ data, averageValue, formatCurrency }) {
   const [hoverIndex, setHoverIndex] = useState(null);
+  const containerRef = useRef(null);
+  const [dimensions, setDimensions] = useState(DEFAULT_DIMENSIONS);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const measure = () => {
+      const nextWidth = element.clientWidth || DEFAULT_DIMENSIONS.width;
+      setDimensions((prev) =>
+        prev.width === nextWidth
+          ? prev
+          : { width: nextWidth, height: DEFAULT_DIMENSIONS.height }
+      );
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => {
+        window.removeEventListener("resize", measure);
+      };
+    }
+
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     setHoverIndex(null);
   }, [data?.length]);
+
+  const svgWidth = Math.max(dimensions.width, 320);
+  const svgHeight = DEFAULT_DIMENSIONS.height;
+  const innerWidth = Math.max(svgWidth - PADDING.left - PADDING.right, 0);
+  const innerHeight = Math.max(svgHeight - PADDING.top - PADDING.bottom, 0);
 
   const chart = useMemo(() => {
     if (!Array.isArray(data) || data.length === 0) {
@@ -174,7 +224,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       domainMin,
       domainMax,
     };
-  }, [data]);
+  }, [data, innerHeight, innerWidth]);
 
   const focusIndex =
     hoverIndex ?? (data && data.length ? data.length - 1 : null);
@@ -192,21 +242,40 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
         return;
       }
       const bounds = event.currentTarget.getBoundingClientRect();
+      if (bounds.width === 0) {
+        return;
+      }
       const relativeX = event.clientX - bounds.left;
+      const viewBoxX = (relativeX / bounds.width) * svgWidth;
       const clampedX = Math.min(
-        Math.max(relativeX, PADDING.left),
-        PADDING.left + innerWidth
+        Math.max(viewBoxX, PADDING.left),
+        svgWidth - PADDING.right
       );
-      const ratio =
-        innerWidth === 0 ? 0 : (clampedX - PADDING.left) / innerWidth;
-      const index = Math.round(ratio * (chart.points.length - 1));
-      setHoverIndex(index);
+
+      let closestIndex = 0;
+      let minDistance = Number.POSITIVE_INFINITY;
+      chart.points.forEach((point, index) => {
+        const distance = Math.abs(point.x - clampedX);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestIndex = index;
+        }
+      });
+
+      setHoverIndex(closestIndex);
     },
-    [chart.points.length, data?.length]
+    [chart.points, data?.length, svgWidth]
   );
 
   const handlePointerLeave = useCallback(() => {
     setHoverIndex(null);
+  }, []);
+  const formatAxisTick = useCallback((value) => {
+    if (!Number.isFinite(value) || value === 0) {
+      return axisCurrencyFormatter.format(0);
+    }
+    const formatted = axisCurrencyFormatter.format(Math.abs(value));
+    return value > 0 ? formatted : `-${formatted}`;
   }, []);
 
   if (!data || data.length === 0) {
@@ -271,12 +340,13 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
 
       <div
         className="relative h-64 w-full cursor-crosshair"
+        ref={containerRef}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
         role="presentation"
       >
         <svg
-          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="h-full w-full text-slate-500 [color-scheme:light] dark:text-slate-400"
           preserveAspectRatio="none"
         >
@@ -297,7 +367,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
               <g key={tick}>
                 <line
                   x1={PADDING.left}
-                  x2={WIDTH - PADDING.right}
+                  x2={svgWidth - PADDING.right}
                   y1={y}
                   y2={y}
                   stroke="currentColor"
@@ -311,7 +381,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
                   textAnchor="end"
                   className="fill-current text-[11px] font-medium"
                 >
-                  {formatCurrency(Math.max(0, tick))}
+                  {formatAxisTick(tick)}
                 </text>
               </g>
             );
@@ -319,9 +389,9 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
 
           <line
             x1={PADDING.left}
-            x2={WIDTH - PADDING.right}
-            y1={HEIGHT - PADDING.bottom}
-            y2={HEIGHT - PADDING.bottom}
+            x2={svgWidth - PADDING.right}
+            y1={svgHeight - PADDING.bottom}
+            y2={svgHeight - PADDING.bottom}
             stroke="currentColor"
             strokeWidth={0.8}
             opacity={0.4}
@@ -331,7 +401,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
             <text
               key={`${tick.label}-${tick.x}`}
               x={tick.x}
-              y={HEIGHT - PADDING.bottom + 20}
+              y={svgHeight - PADDING.bottom + 20}
               textAnchor="middle"
               className="fill-current text-[11px] font-medium"
             >

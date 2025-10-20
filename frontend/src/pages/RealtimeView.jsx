@@ -52,6 +52,7 @@ function RealtimeView() {
   });
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
   const [dailySalesHistory, setDailySalesHistory] = useState([]);
+  const [activePanel, setActivePanel] = useState("facturas");
 
   const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -311,6 +312,7 @@ function RealtimeView() {
       : null;
 
   const connectionHealthy = status.includes("🟢");
+  const isInvoicesView = activePanel === "facturas";
 
   const selectedInvoiceData = selectedInvoices
     ? messages.find((msg) => msg.invoice_number === selectedInvoices)
@@ -537,6 +539,15 @@ function RealtimeView() {
     setAreFiltersOpen(false);
   };
 
+  const panelOptions = [
+    { id: "facturas", label: "Facturas" },
+    { id: "historial", label: "Historial" },
+  ];
+
+  const viewDescription = isInvoicesView
+    ? "Explora las facturas en tiempo real y revisa sus detalles sin salir del panel."
+    : "Analiza las variaciones frente al promedio y el comportamiento acumulado de los últimos días.";
+
   useEffect(() => {
     if (
       filters.branch !== "all" &&
@@ -549,6 +560,12 @@ function RealtimeView() {
       }));
     }
   }, [availableBranches, filters.branch]);
+
+  useEffect(() => {
+    if (activePanel !== "facturas") {
+      setAreFiltersOpen(false);
+    }
+  }, [activePanel]);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-10">
@@ -593,407 +610,446 @@ function RealtimeView() {
           icon="📊"
         />
       </section>
-      <section>
-        <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
-          <CardHeader className="space-y-4 pb-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
-                  Evolución diaria
-                </CardTitle>
-                <CardDescription>
-                  Visualiza cómo cada factura se desvía del promedio del día.
-                </CardDescription>
-              </div>
-              {latestBillingPoint ? (
-                <Badge
-                  variant="outline"
-                  className="rounded-full border-transparent bg-primary/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-primary"
-                >
-                  Última: {latestBillingPoint.timeLabel}
-                </Badge>
-              ) : null}
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              La línea central marca el promedio diario; los picos hacia arriba
-              o abajo resaltan oscilaciones inmediatas en la facturación.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <DailyBillingChart
-              data={billingSeries.series}
-              averageValue={billingSeries.average}
-              formatCurrency={formatCurrency}
-            />
-          </CardContent>
-        </Card>
-      </section>
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1fr)]">
-        <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
-          {" "}
-          <CardHeader className="space-y-4 pb-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
-                  Últimas facturas
-                </CardTitle>
-                <CardDescription>
-                  Selecciona un folio para revisar sus ítems al instante.
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                {activeFiltersCount > 0 ? (
-                  <span className="inline-flex items-center gap-2 rounded-full bg-primary/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-primary">
-                    {`${activeFiltersCount} filtro${
-                      activeFiltersCount > 1 ? "s" : ""
-                    } activos`}
-                  </span>
-                ) : null}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setAreFiltersOpen((prev) => !prev)}
-                  aria-expanded={areFiltersOpen}
-                  aria-controls="invoice-filters"
-                  className="gap-2 rounded-full border border-transparent bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-slate-600 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-slate-800/60 dark:text-slate-300"
-                >
-                  <span aria-hidden="true">🔍</span>
-                  {areFiltersOpen ? "Ocultar filtros" : "Mostrar filtros"}
-                </Button>
-              </div>
-            </div>
-            <Badge
-              variant="outline"
-              className="w-fit rounded-full border-transparent bg-muted px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300"
-            >
-              {invoicesCountLabel}
-            </Badge>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {areFiltersOpen ? (
-              <div
-                id="invoice-filters"
-                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/50"
+      <section className="flex flex-wrap items-center justify-between gap-4">
+        <div className="inline-flex rounded-full bg-slate-100 p-1 text-xs font-semibold uppercase tracking-[0.22em] text-slate-600 shadow-sm dark:bg-slate-800/60 dark:text-slate-300">
+          {panelOptions.map((option) => {
+            const isActive = activePanel === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setActivePanel(option.id)}
+                className={cn(
+                  "rounded-full px-4 py-2 transition",
+                  isActive
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900/80 dark:text-foreground"
+                    : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                )}
               >
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex flex-1 flex-wrap gap-3">
-                    <div className="min-w-[12rem] flex-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-                        Buscar folio
-                      </label>
-                      <input
-                        type="search"
-                        value={filters.query}
-                        onChange={handleFilterChange("query")}
-                        placeholder="Ej. 001-2024"
-                        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    <div>
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-                        Total (mín / máx)
-                      </label>
-                      <div className="mt-1 flex items-center gap-2">
-                        <input
-                          type="number"
-                          value={filters.minTotal}
-                          onChange={handleFilterChange("minTotal")}
-                          placeholder={
-                            totalsRange.min !== Infinity ? totalsRange.min : "0"
-                          }
-                          className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                        />
-                        <span className="text-xs font-semibold text-slate-400">
-                          —
-                        </span>
-                        <input
-                          type="number"
-                          value={filters.maxTotal}
-                          onChange={handleFilterChange("maxTotal")}
-                          placeholder={totalsRange.max}
-                          className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-                        Ítems (mín / máx)
-                      </label>
-                      <div className="mt-1 flex items-center gap-2">
-                        <input
-                          type="number"
-                          value={filters.minItems}
-                          onChange={handleFilterChange("minItems")}
-                          placeholder={
-                            itemsRange.min !== Infinity ? itemsRange.min : "0"
-                          }
-                          className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                        />
-                        <span className="text-xs font-semibold text-slate-400">
-                          —
-                        </span>
-                        <input
-                          type="number"
-                          value={filters.maxItems}
-                          onChange={handleFilterChange("maxItems")}
-                          placeholder={itemsRange.max}
-                          className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
-                  <p>
-                    {activeFiltersCount > 0
-                      ? `${activeFiltersCount} filtro${
-                          activeFiltersCount > 1 ? "s" : ""
-                        } activos`
-                      : "Sin filtros aplicados"}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleResetFilters}
-                      disabled={activeFiltersCount === 0}
-                      className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-600 hover:text-primary dark:text-slate-300"
-                    >
-                      Limpiar
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleApplyFilters}
-                      className="text-xs font-semibold uppercase tracking-[0.22em]"
-                    >
-                      Aplicar filtros
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-            {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-6 py-12 text-center text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
-                {" "}
-                <span className="text-4xl" aria-hidden="true">
-                  🕓
-                </span>
-                <p className="text-sm font-medium">
-                  Aún no hay facturas registradas hoy.
-                </p>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  {" "}
-                  En cuanto llegue la primera, aparecerá automáticamente en esta
-                  lista.
-                </p>
-              </div>
-            ) : filteredMessages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
-                <span className="text-4xl" aria-hidden="true">
-                  🔍
-                </span>
-                <p className="text-sm font-medium">
-                  No encontramos facturas con los filtros seleccionados.
-                </p>
-                <p className="text-xs">
-                  Ajusta los criterios para explorar otros resultados.
-                </p>
-              </div>
-            ) : (
-              <ul className="space-y-2">
-                {filteredMessages.map((msg, i) => {
-                  const isSelected = selectedInvoices === msg.invoice_number;
-                  const invoiceDate = msg.invoice_date
-                    ? new Date(msg.invoice_date).toLocaleString("es-CO", {
-                        dateStyle: "short",
-                        timeStyle: "short",
-                      })
-                    : "";
-                  return (
-                    <li key={`${msg.invoice_number}-${i}`}>
-                      <button
-                        type="button"
-                        onClick={() => handleInvoiceClick(msg.invoice_number)}
-                        aria-pressed={isSelected}
-                        className={cn(
-                          "group w-full rounded-xl border border-transparent bg-white px-4 py-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-slate-900/60",
-                          {
-                            "border-primary/50 bg-primary/5 shadow-md dark:border-primary/60 dark:bg-primary/10":
-                              isSelected,
-                          }
-                        )}
-                      >
-                        <div className="flex flex-wrap items-center gap-4">
-                          <div className="min-w-[7rem]">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400">
-                              {" "}
-                              Factura
-                            </p>
-                            <p className="text-base font-semibold text-slate-900 dark:text-foreground">
-                              #{msg.invoice_number}
-                            </p>
-                          </div>
-                          <div className="ml-auto text-right">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400">
-                              {" "}
-                              Total
-                            </p>
-                            <p className="text-lg font-semibold text-primary">
-                              {formatCurrency(msg.total)}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
-                            {" "}
-                            <span
-                              className="h-1.5 w-1.5 rounded-full bg-primary/60"
-                              aria-hidden="true"
-                            />
-                            {msg.items ?? 0} ítems
-                          </span>
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
-                            <span
-                              className="h-1.5 w-1.5 rounded-full bg-primary/60"
-                              aria-hidden="true"
-                            />
-                            {(msg.branch || "FLO").toUpperCase()}
-                          </span>
-                          {invoiceDate ? <span>{invoiceDate}</span> : null}
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-slate-600 dark:text-slate-400">
+          {viewDescription}
+        </p>
+      </section>
 
-        <div className="lg:sticky lg:top-24 lg:self-start">
-          <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70 lg:flex lg:h-[calc(100vh-7rem)] lg:max-h-[calc(100vh-7rem)] lg:flex-col lg:overflow-hidden">
-            {" "}
-            <CardHeader className="space-y-2 pb-5">
-              <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
-                {selectedInvoiceData
-                  ? `Factura #${selectedInvoiceData.invoice_number}`
-                  : "Detalle de factura"}
-              </CardTitle>
-              <CardDescription>
-                {selectedInvoiceData
-                  ? selectedInvoiceMeta
-                  : "Selecciona una factura de la lista para explorar sus ítems sin salir de la vista principal."}
-              </CardDescription>
+      {!isInvoicesView ? (
+        <section className="space-y-6">
+          <Card className="mx-auto w-full max-w-5xl border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+            <CardHeader className="space-y-4 pb-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
+                    Evolución diaria
+                  </CardTitle>
+                  <CardDescription>
+                    Visualiza cómo cada factura se desvía del promedio del día.
+                  </CardDescription>
+                </div>
+                {latestBillingPoint ? (
+                  <Badge
+                    variant="outline"
+                    className="rounded-full border-transparent bg-primary/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-primary"
+                  >
+                    Última: {latestBillingPoint.timeLabel}
+                  </Badge>
+                ) : null}
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                La línea central marca el promedio diario; los picos hacia
+                arriba o abajo resaltan oscilaciones inmediatas en la
+                facturación.
+              </p>
             </CardHeader>
-            <CardContent className="space-y-6 lg:flex-1 lg:overflow-y-auto">
-              {selectedInvoiceData ? (
-                <>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
-                      <span className="block text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-500">
-                        {" "}
-                        Total
-                      </span>
-                      <span className="text-base font-semibold text-slate-900 dark:text-foreground">
-                        {formatCurrency(detailComputedTotal)}
-                      </span>
+            <CardContent className="mx-auto w-full max-w-5xl">
+              <DailyBillingChart
+                data={billingSeries.series}
+                averageValue={billingSeries.average}
+                formatCurrency={formatCurrency}
+              />
+            </CardContent>
+          </Card>
+          <div className="mx-auto w-full max-w-5xl">
+            <DailySalesChart data={dailySalesSeries} />
+          </div>
+        </section>
+      ) : null}
+
+      {isInvoicesView ? (
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1fr)]">
+          <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+            {" "}
+            <CardHeader className="space-y-4 pb-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
+                    Últimas facturas
+                  </CardTitle>
+                  <CardDescription>
+                    Selecciona un folio para revisar sus ítems al instante.
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  {activeFiltersCount > 0 ? (
+                    <span className="inline-flex items-center gap-2 rounded-full bg-primary/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+                      {`${activeFiltersCount} filtro${
+                        activeFiltersCount > 1 ? "s" : ""
+                      } activos`}
+                    </span>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setAreFiltersOpen((prev) => !prev)}
+                    aria-expanded={areFiltersOpen}
+                    aria-controls="invoice-filters"
+                    className="gap-2 rounded-full border border-transparent bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-slate-600 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-slate-800/60 dark:text-slate-300"
+                  >
+                    <span aria-hidden="true">🔍</span>
+                    {areFiltersOpen ? "Ocultar filtros" : "Mostrar filtros"}
+                  </Button>
+                </div>
+              </div>
+              <Badge
+                variant="outline"
+                className="w-fit rounded-full border-transparent bg-muted px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300"
+              >
+                {invoicesCountLabel}
+              </Badge>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {areFiltersOpen ? (
+                <div
+                  id="invoice-filters"
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/50"
+                >
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-1 flex-wrap gap-3">
+                      <div className="min-w-[12rem] flex-1">
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                          Buscar folio
+                        </label>
+                        <input
+                          type="search"
+                          value={filters.query}
+                          onChange={handleFilterChange("query")}
+                          placeholder="Ej. 001-2024"
+                          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                        />
+                      </div>
                     </div>
-                    <div className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
-                      <span className="block text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-500">
-                        {" "}
-                        Ítems
-                      </span>
-                      <span className="text-base font-semibold text-slate-900 dark:text-foreground">
-                        {detailItemsCount}
-                      </span>
-                    </div>
-                    <div className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
-                      <span className="block text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-500">
-                        {" "}
-                        Folio
-                      </span>
-                      <span className="text-base font-semibold text-slate-900 dark:text-foreground">
-                        #{selectedInvoiceData.invoice_number}
-                      </span>
+                    <div className="flex flex-wrap gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                          Total (mín / máx)
+                        </label>
+                        <div className="mt-1 flex items-center gap-2">
+                          <input
+                            type="number"
+                            value={filters.minTotal}
+                            onChange={handleFilterChange("minTotal")}
+                            placeholder={
+                              totalsRange.min !== Infinity
+                                ? totalsRange.min
+                                : "0"
+                            }
+                            className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                          />
+                          <span className="text-xs font-semibold text-slate-400">
+                            —
+                          </span>
+                          <input
+                            type="number"
+                            value={filters.maxTotal}
+                            onChange={handleFilterChange("maxTotal")}
+                            placeholder={totalsRange.max}
+                            className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+                          Ítems (mín / máx)
+                        </label>
+                        <div className="mt-1 flex items-center gap-2">
+                          <input
+                            type="number"
+                            value={filters.minItems}
+                            onChange={handleFilterChange("minItems")}
+                            placeholder={
+                              itemsRange.min !== Infinity ? itemsRange.min : "0"
+                            }
+                            className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                          />
+                          <span className="text-xs font-semibold text-slate-400">
+                            —
+                          </span>
+                          <input
+                            type="number"
+                            value={filters.maxItems}
+                            onChange={handleFilterChange("maxItems")}
+                            placeholder={itemsRange.max}
+                            className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  {loadingItems ? (
-                    <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
-                      {" "}
-                      Cargando ítems…
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
+                    <p>
+                      {activeFiltersCount > 0
+                        ? `${activeFiltersCount} filtro${
+                            activeFiltersCount > 1 ? "s" : ""
+                          } activos`
+                        : "Sin filtros aplicados"}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleResetFilters}
+                        disabled={activeFiltersCount === 0}
+                        className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-600 hover:text-primary dark:text-slate-300"
+                      >
+                        Limpiar
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleApplyFilters}
+                        className="text-xs font-semibold uppercase tracking-[0.22em]"
+                      >
+                        Aplicar filtros
+                      </Button>
                     </div>
-                  ) : invoiceItems.length > 0 ? (
-                    <div className="space-y-4">
-                      <div className="hidden grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 dark:text-slate-400 sm:grid">
-                        {" "}
-                        <span className="sm:col-span-6">Producto</span>
-                        <span className="text-right sm:col-span-2">Cant.</span>
-                        <span className="text-right sm:col-span-2">
-                          Unitario
-                        </span>
-                        <span className="text-right sm:col-span-2">
-                          Subtotal
-                        </span>
-                      </div>
-                      <div className="space-y-2">
-                        {invoiceItems.map((item, idx) => (
-                          <div
-                            key={`${item.description}-${idx}`}
-                            className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm transition-colors dark:border-slate-800/70 dark:bg-slate-900/60 dark:text-slate-200 sm:grid-cols-12"
-                          >
-                            <span className="font-medium text-slate-700 dark:text-slate-100 sm:col-span-6">
-                              {item.description}
-                            </span>
-                            <span className="flex items-center justify-between text-slate-600 dark:text-slate-400 sm:col-span-2 sm:justify-end">
-                              <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
-                                Cant.
-                              </span>
-                              <span>{item.quantity.toFixed(2)}</span>
-                            </span>
-                            <span className="flex items-center justify-between text-slate-600 dark:text-slate-400 sm:col-span-2 sm:justify-end">
-                              <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
-                                Unitario
-                              </span>
-                              <span>{formatCurrency(item.unit_price)}</span>
-                            </span>
-                            <span className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-100 sm:col-span-2 sm:justify-end">
-                              <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
-                                Subtotal
-                              </span>
-                              <span>{formatCurrency(item.subtotal)}</span>
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
-                      {" "}
-                      Sin ítems para mostrar
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="flex h-48 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-center text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+                  </div>
+                </div>
+              ) : null}
+              {messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-6 py-12 text-center text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
                   {" "}
-                  <span className="text-3xl" aria-hidden="true">
-                    🧾
+                  <span className="text-4xl" aria-hidden="true">
+                    🕓
                   </span>
                   <p className="text-sm font-medium">
-                    Selecciona una factura para ver sus ítems.
+                    Aún no hay facturas registradas hoy.
                   </p>
                   <p className="text-xs text-slate-600 dark:text-slate-400">
-                    Mantén la vista principal mientras exploras el detalle de
-                    cada documento.
+                    {" "}
+                    En cuanto llegue la primera, aparecerá automáticamente en
+                    esta lista.
                   </p>
                 </div>
+              ) : filteredMessages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
+                  <span className="text-4xl" aria-hidden="true">
+                    🔍
+                  </span>
+                  <p className="text-sm font-medium">
+                    No encontramos facturas con los filtros seleccionados.
+                  </p>
+                  <p className="text-xs">
+                    Ajusta los criterios para explorar otros resultados.
+                  </p>
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {filteredMessages.map((msg, i) => {
+                    const isSelected = selectedInvoices === msg.invoice_number;
+                    const invoiceDate = msg.invoice_date
+                      ? new Date(msg.invoice_date).toLocaleString("es-CO", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })
+                      : "";
+                    return (
+                      <li key={`${msg.invoice_number}-${i}`}>
+                        <button
+                          type="button"
+                          onClick={() => handleInvoiceClick(msg.invoice_number)}
+                          aria-pressed={isSelected}
+                          className={cn(
+                            "group w-full rounded-xl border border-transparent bg-white px-4 py-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-slate-900/60",
+                            {
+                              "border-primary/50 bg-primary/5 shadow-md dark:border-primary/60 dark:bg-primary/10":
+                                isSelected,
+                            }
+                          )}
+                        >
+                          <div className="flex flex-wrap items-center gap-4">
+                            <div className="min-w-[7rem]">
+                              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400">
+                                {" "}
+                                Factura
+                              </p>
+                              <p className="text-base font-semibold text-slate-900 dark:text-foreground">
+                                #{msg.invoice_number}
+                              </p>
+                            </div>
+                            <div className="ml-auto text-right">
+                              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 dark:text-slate-400">
+                                {" "}
+                                Total
+                              </p>
+                              <p className="text-lg font-semibold text-primary">
+                                {formatCurrency(msg.total)}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
+                              {" "}
+                              <span
+                                className="h-1.5 w-1.5 rounded-full bg-primary/60"
+                                aria-hidden="true"
+                              />
+                              {msg.items ?? 0} ítems
+                            </span>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
+                              <span
+                                className="h-1.5 w-1.5 rounded-full bg-primary/60"
+                                aria-hidden="true"
+                              />
+                              {(msg.branch || "FLO").toUpperCase()}
+                            </span>
+                            {invoiceDate ? <span>{invoiceDate}</span> : null}
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </CardContent>
           </Card>
-        </div>
-      </section>
+
+          <div className="lg:sticky lg:top-24 lg:self-start">
+            <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70 lg:flex lg:h-[calc(100vh-7rem)] lg:max-h-[calc(100vh-7rem)] lg:flex-col lg:overflow-hidden">
+              {" "}
+              <CardHeader className="space-y-2 pb-5">
+                <CardTitle className="text-xl font-semibold text-slate-900 dark:text-foreground">
+                  {selectedInvoiceData
+                    ? `Factura #${selectedInvoiceData.invoice_number}`
+                    : "Detalle de factura"}
+                </CardTitle>
+                <CardDescription>
+                  {selectedInvoiceData
+                    ? selectedInvoiceMeta
+                    : "Selecciona una factura de la lista para explorar sus ítems sin salir de la vista principal."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6 lg:flex-1 lg:overflow-y-auto">
+                {selectedInvoiceData ? (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+                        <span className="block text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-500">
+                          {" "}
+                          Total
+                        </span>
+                        <span className="text-base font-semibold text-slate-900 dark:text-foreground">
+                          {formatCurrency(detailComputedTotal)}
+                        </span>
+                      </div>
+                      <div className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+                        <span className="block text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-500">
+                          {" "}
+                          Ítems
+                        </span>
+                        <span className="text-base font-semibold text-slate-900 dark:text-foreground">
+                          {detailItemsCount}
+                        </span>
+                      </div>
+                      <div className="rounded-xl bg-muted px-4 py-3 text-sm font-medium text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+                        <span className="block text-xs uppercase tracking-[0.24em] text-slate-600 dark:text-slate-500">
+                          {" "}
+                          Folio
+                        </span>
+                        <span className="text-base font-semibold text-slate-900 dark:text-foreground">
+                          #{selectedInvoiceData.invoice_number}
+                        </span>
+                      </div>
+                    </div>
+                    {loadingItems ? (
+                      <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+                        {" "}
+                        Cargando ítems…
+                      </div>
+                    ) : invoiceItems.length > 0 ? (
+                      <div className="space-y-4">
+                        <div className="hidden grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 dark:text-slate-400 sm:grid">
+                          {" "}
+                          <span className="sm:col-span-6">Producto</span>
+                          <span className="text-right sm:col-span-2">
+                            Cant.
+                          </span>
+                          <span className="text-right sm:col-span-2">
+                            Unitario
+                          </span>
+                          <span className="text-right sm:col-span-2">
+                            Subtotal
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {invoiceItems.map((item, idx) => (
+                            <div
+                              key={`${item.description}-${idx}`}
+                              className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm transition-colors dark:border-slate-800/70 dark:bg-slate-900/60 dark:text-slate-200 sm:grid-cols-12"
+                            >
+                              <span className="font-medium text-slate-700 dark:text-slate-100 sm:col-span-6">
+                                {item.description}
+                              </span>
+                              <span className="flex items-center justify-between text-slate-600 dark:text-slate-400 sm:col-span-2 sm:justify-end">
+                                <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
+                                  Cant.
+                                </span>
+                                <span>{item.quantity.toFixed(2)}</span>
+                              </span>
+                              <span className="flex items-center justify-between text-slate-600 dark:text-slate-400 sm:col-span-2 sm:justify-end">
+                                <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
+                                  Unitario
+                                </span>
+                                <span>{formatCurrency(item.unit_price)}</span>
+                              </span>
+                              <span className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-100 sm:col-span-2 sm:justify-end">
+                                <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
+                                  Subtotal
+                                </span>
+                                <span>{formatCurrency(item.subtotal)}</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+                        {" "}
+                        Sin ítems para mostrar
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex h-48 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-center text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+                    {" "}
+                    <span className="text-3xl" aria-hidden="true">
+                      🧾
+                    </span>
+                    <p className="text-sm font-medium">
+                      Selecciona una factura para ver sus ítems.
+                    </p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Mantén la vista principal mientras exploras el detalle de
+                      cada documento.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
