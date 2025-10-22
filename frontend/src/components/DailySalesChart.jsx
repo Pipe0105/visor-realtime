@@ -127,7 +127,6 @@ export default function DailySalesChart({ data }) {
                 width={width}
                 height={height}
                 className="min-w-full"
-                className="min-w-full"
               >
                 <defs>
                   <linearGradient id="sales-area" x1="0" x2="0" y1="0" y2="1">
