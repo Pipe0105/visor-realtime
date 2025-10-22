@@ -9,6 +9,7 @@ import { cn } from "../lib/utils";
 
 const DEFAULT_DIMENSIONS = { width: 720, height: 260 };
 const PADDING = { top: 28, right: 28, bottom: 44, left: 60 };
+const MIN_SELECTION_WIDTH = 8;
 
 const axisCurrencyFormatter = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -26,10 +27,10 @@ function niceCeil(value) {
   const normalized = value / factor;
 
   let nice;
-  if (normalized <= 1) nice = 1;
+  if (normalized <= 0.2) nice = 0.2;
+  else if (normalized <= 1) nice = 1;
   else if (normalized <= 2) nice = 2;
-  else if (normalized <= 5) nice = 5;
-  else nice = 10;
+  else nice = 2;
 
   return nice * factor;
 }
@@ -54,6 +55,10 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
   const [hoverIndex, setHoverIndex] = useState(null);
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState(DEFAULT_DIMENSIONS);
+  const [timeWindow, setTimeWindow] = useState(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionBox, setSelectionBox] = useState(null);
+  const selectionOriginRef = useRef(null);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -105,27 +110,96 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
         linePath: "",
         domainMin: 0,
         domainMax: 1,
+        visibleData: [],
+        scaleXInverse: null,
+        availableMinTime: null,
+        availableMaxTime: null,
+        hasActiveWindow: false,
       };
     }
 
-    const timestamps = data.map((item) => item.timestamp);
+    const sortableData = data.filter((item) =>
+      Number.isFinite(Number(item?.timestamp))
+    );
+
+    if (sortableData.length === 0) {
+      return {
+        points: [],
+        yTicks: [],
+        xTicks: [],
+        baselineY: PADDING.top + innerHeight,
+        areaPath: "",
+        linePath: "",
+        domainMin: 0,
+        domainMax: 1,
+        visibleData: [],
+        scaleXInverse: null,
+        availableMinTime: null,
+        availableMaxTime: null,
+        hasActiveWindow: false,
+      };
+    }
+
+    const availableMinTime = Math.min(
+      ...sortableData.map((item) => Number(item.timestamp))
+    );
+    const availableMaxTime = Math.max(
+      ...sortableData.map((item) => Number(item.timestamp))
+    );
+
+    let filteredData = sortableData;
+
+    if (
+      timeWindow &&
+      Number.isFinite(timeWindow[0]) &&
+      Number.isFinite(timeWindow[1])
+    ) {
+      const [rawStart, rawEnd] = timeWindow;
+      const start = Math.min(rawStart, rawEnd);
+      const end = Math.max(rawStart, rawEnd);
+
+      filteredData = sortableData.filter(
+        (item) => item.timestamp >= start && item.timestamp <= end
+      );
+
+      if (filteredData.length === 0) {
+        const tolerance = 60 * 1000;
+        filteredData = sortableData.filter(
+          (item) =>
+            item.timestamp >= start - tolerance &&
+            item.timestamp <= end + tolerance
+        );
+      }
+    }
+
+    if (filteredData.length === 0) {
+      filteredData = sortableData;
+    }
+
+    const timestamps = filteredData.map((item) => item.timestamp);
     const minTime = Math.min(...timestamps);
     const maxTime = Math.max(...timestamps);
     const timeSpan = maxTime - minTime;
     const sameTimestamp = timeSpan === 0;
 
-    // Extiende el rango proporcionalmente al tamaño real
-    // (20% extra si hay suficiente espacio, o al menos 5 minutos)
-    const MIN_EXTRA_RANGE_MS = 30 * 60 * 1000;
-    const extraRange = Math.max(timeSpan * 0.3, MIN_EXTRA_RANGE_MS);
-    const adjustedMinTime = minTime - extraRange;
-    const adjustedMaxTime = maxTime + extraRange;
+    const MIN_EXTRA_RANGE_MS = timeWindow ? 5 * 60 * 1000 : 12 * 60 * 1000;
+    const marginFactor = timeWindow ? 0.06 : 0.12;
+    const padding = sameTimestamp
+      ? MIN_EXTRA_RANGE_MS
+      : Math.max(timeSpan * marginFactor, MIN_EXTRA_RANGE_MS);
+
+    const adjustedMinTime = sameTimestamp
+      ? minTime - padding / 2
+      : minTime - padding;
+    const adjustedMaxTime = sameTimestamp
+      ? maxTime + padding / 2
+      : maxTime + padding;
 
     const timeRange = sameTimestamp
       ? 1
       : Math.max(adjustedMaxTime - adjustedMinTime, 1);
 
-    const values = data.map((item) => Number(item.total) || 0);
+    const values = filteredData.map((item) => Number(item.total) || 0);
     const rawMin = Math.min(...values);
     const rawMax = Math.max(...values);
 
@@ -159,7 +233,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       const ratio = (value - domainMin) / range;
       return PADDING.top + (1 - ratio) * innerHeight;
     };
-    const points = data.map((item) => {
+    const points = filteredData.map((item) => {
       const value = Number(item.total) || 0;
       return {
         ...item,
@@ -219,7 +293,7 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       .sort((a, b) => a - b)
       .map((index) => ({
         x: points[index].x,
-        label: data[index].timeLabel,
+        label: filteredData[index].timeLabel,
       }));
 
     const xTicks = [];
@@ -266,34 +340,109 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
       xTicks,
       domainMin,
       domainMax,
+      visibleData: filteredData,
+      scaleXInverse: sameTimestamp
+        ? () => minTime
+        : (x) => {
+            const ratio =
+              innerWidth === 0 ? 0 : (x - PADDING.left) / innerWidth;
+            const clampedRatio = Math.min(Math.max(ratio, 0), 1);
+            return (
+              adjustedMinTime +
+              clampedRatio * (adjustedMaxTime - adjustedMinTime)
+            );
+          },
+      availableMinTime,
+      availableMaxTime,
+      hasActiveWindow: Boolean(timeWindow),
     };
-  }, [data, innerHeight, innerWidth]);
+  }, [data, innerHeight, innerWidth, timeWindow]);
 
   const focusIndex =
-    hoverIndex ?? (data && data.length ? data.length - 1 : null);
-  const focusPoint = focusIndex != null && data ? data[focusIndex] : null;
+    hoverIndex ??
+    (chart.visibleData && chart.visibleData.length
+      ? chart.visibleData.length - 1
+      : null);
+  const focusPoint =
+    focusIndex != null && chart.visibleData
+      ? chart.visibleData[focusIndex]
+      : null;
   const previousPoint =
-    focusPoint && focusIndex > 0 && data ? data[focusIndex - 1] : null;
+    focusPoint && focusIndex > 0 && chart.visibleData
+      ? chart.visibleData[focusIndex - 1]
+      : null;
   const deltaValue =
     previousPoint && focusPoint
       ? (Number(focusPoint.total) || 0) - (Number(previousPoint.total) || 0)
       : null;
 
-  const handlePointerMove = useCallback(
+  useEffect(() => {
+    if (hoverIndex == null) {
+      return;
+    }
+    if (!chart.visibleData || chart.visibleData.length === 0) {
+      setHoverIndex(null);
+      return;
+    }
+    if (hoverIndex >= chart.visibleData.length) {
+      setHoverIndex(chart.visibleData.length - 1);
+    }
+  }, [chart.visibleData, hoverIndex]);
+
+  useEffect(() => {
+    if (
+      !timeWindow ||
+      chart.availableMinTime == null ||
+      chart.availableMaxTime == null
+    ) {
+      return;
+    }
+
+    const [start, end] = timeWindow;
+    if (end < chart.availableMinTime || start > chart.availableMaxTime) {
+      setTimeWindow(null);
+      setSelectionBox(null);
+      setHoverIndex(null);
+    }
+  }, [chart.availableMinTime, chart.availableMaxTime, timeWindow]);
+
+  const getClampedViewBoxX = useCallback(
     (event) => {
-      if (!chart.points.length || !data?.length) {
-        return;
-      }
       const bounds = event.currentTarget.getBoundingClientRect();
       if (bounds.width === 0) {
-        return;
+        return null;
       }
       const relativeX = event.clientX - bounds.left;
       const viewBoxX = (relativeX / bounds.width) * svgWidth;
-      const clampedX = Math.min(
+      return Math.min(
         Math.max(viewBoxX, PADDING.left),
         svgWidth - PADDING.right
       );
+    },
+    [svgWidth]
+  );
+
+  const handlePointerMove = useCallback(
+    (event) => {
+      if (!chart.points.length || !chart.visibleData?.length) {
+        return;
+      }
+      const clampedX = getClampedViewBoxX(event);
+      if (clampedX == null) {
+        return;
+      }
+
+      if (isSelecting) {
+        setSelectionBox((prev) =>
+          prev
+            ? {
+                start: prev.start,
+                end: clampedX,
+              }
+            : null
+        );
+        return;
+      }
 
       let closestIndex = 0;
       let minDistance = Number.POSITIVE_INFINITY;
@@ -307,12 +456,98 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
 
       setHoverIndex(closestIndex);
     },
-    [chart.points, data?.length, svgWidth]
+    [chart.points, chart.visibleData, getClampedViewBoxX, isSelecting]
   );
 
   const handlePointerLeave = useCallback(() => {
     setHoverIndex(null);
   }, []);
+
+  const handlePointerDown = useCallback(
+    (event) => {
+      if (!chart.points.length || !chart.scaleXInverse) {
+        return;
+      }
+      const clampedX = getClampedViewBoxX(event);
+      if (clampedX == null) {
+        return;
+      }
+      selectionOriginRef.current = clampedX;
+      setSelectionBox({ start: clampedX, end: clampedX });
+      setIsSelecting(true);
+      setHoverIndex(null);
+      if (event.currentTarget.setPointerCapture) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+    },
+    [chart.points.length, chart.scaleXInverse, getClampedViewBoxX]
+  );
+
+  const finalizeSelection = useCallback(
+    (event, skipZoom = false) => {
+      const origin = selectionOriginRef.current;
+      setIsSelecting(false);
+      selectionOriginRef.current = null;
+      setSelectionBox(null);
+      if (event?.currentTarget?.releasePointerCapture) {
+        try {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch (err) {
+          // Pointer may already be released; ignore errors
+        }
+      }
+
+      if (skipZoom || origin == null || !chart.scaleXInverse) {
+        return;
+      }
+
+      const clampedX = event ? getClampedViewBoxX(event) : origin;
+      const endX = clampedX ?? origin;
+      const startX = origin;
+      const minX = Math.min(startX, endX);
+      const maxX = Math.max(startX, endX);
+
+      if (maxX - minX < MIN_SELECTION_WIDTH) {
+        return;
+      }
+
+      const startTime = chart.scaleXInverse(minX);
+      const endTime = chart.scaleXInverse(maxX);
+
+      if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+        return;
+      }
+
+      if (Math.abs(endTime - startTime) < 1000) {
+        return;
+      }
+
+      setTimeWindow([startTime, endTime]);
+    },
+    [chart.scaleXInverse, getClampedViewBoxX]
+  );
+
+  const handlePointerUp = useCallback(
+    (event) => {
+      if (!isSelecting) {
+        return;
+      }
+      finalizeSelection(event);
+    },
+    [finalizeSelection, isSelecting]
+  );
+
+  const handlePointerCancel = useCallback(
+    (event) => {
+      if (!isSelecting) {
+        return;
+      }
+      finalizeSelection(event, true);
+    },
+    [finalizeSelection, isSelecting]
+  );
+
   const formatAxisTick = useCallback((value) => {
     if (!Number.isFinite(value) || value === 0) {
       return axisCurrencyFormatter.format(0);
@@ -320,6 +555,22 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
     const formatted = axisCurrencyFormatter.format(Math.abs(value));
     return value > 0 ? formatted : `-${formatted}`;
   }, []);
+
+  const handleResetZoom = useCallback(() => {
+    setTimeWindow(null);
+    setSelectionBox(null);
+    setHoverIndex(null);
+  }, []);
+
+  const selectionRect =
+    selectionBox &&
+    Number.isFinite(selectionBox.start) &&
+    Number.isFinite(selectionBox.end)
+      ? {
+          x: Math.min(selectionBox.start, selectionBox.end),
+          width: Math.abs(selectionBox.end - selectionBox.start),
+        }
+      : null;
 
   if (!data || data.length === 0) {
     return (
@@ -381,11 +632,28 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
         ) : null}
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+        <p>Arrastra sobre el gráfico para acercar un intervalo específico.</p>
+        {chart.hasActiveWindow ? (
+          <button
+            type="button"
+            onClick={handleResetZoom}
+            className="rounded-full border border-slate-200 px-3 py-1 font-semibold uppercase tracking-[0.22em] text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            Restablecer zoom
+          </button>
+        ) : null}
+      </div>
+
       <div
         className="relative h-64 w-full cursor-crosshair"
         ref={containerRef}
+        onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onDoubleClick={handleResetZoom}
         role="presentation"
       >
         <svg
@@ -457,6 +725,18 @@ function DailyBillingChart({ data, averageValue, formatCurrency }) {
               d={chart.areaPath}
               fill="url(#daily-billing-area)"
               stroke="none"
+            />
+          ) : null}
+
+          {selectionRect ? (
+            <rect
+              x={selectionRect.x}
+              y={PADDING.top}
+              width={selectionRect.width}
+              height={innerHeight}
+              fill="rgba(59,130,246,0.12)"
+              stroke="rgba(59,130,246,0.45)"
+              strokeDasharray="6 6"
             />
           ) : null}
 

@@ -38,22 +38,28 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function normalizeTimestamp(value) {
+function parseInvoiceTimestamp(value) {
   if (value == null) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    if (!Number.isNaN(value.getTime())) {
+      return value;
+    }
     return null;
   }
 
   if (typeof value === "number") {
     const fromNumber = new Date(value);
     if (!Number.isNaN(fromNumber.getTime())) {
-      return fromNumber.toISOString();
+      return fromNumber;
     }
-    return String(value);
-  }
-
-  if (value instanceof Date) {
-    if (!Number.isNaN(value.getTime())) {
-      return value.toISOString();
+    if (Number.isFinite(value)) {
+      const fromSeconds = new Date(value * 1000);
+      if (!Number.isNaN(fromSeconds.getTime())) {
+        return fromSeconds;
+      }
     }
     return null;
   }
@@ -63,12 +69,83 @@ function normalizeTimestamp(value) {
     return null;
   }
 
-  const parsed = new Date(stringValue);
+  if (/^\d{10}$/.test(stringValue)) {
+    const fromSeconds = new Date(Number(stringValue) * 1000);
+    if (!Number.isNaN(fromSeconds.getTime())) {
+      return fromSeconds;
+    }
+  }
+
+  if (/^\d{13}$/.test(stringValue)) {
+    const fromMillis = new Date(Number(stringValue));
+    if (!Number.isNaN(fromMillis.getTime())) {
+      return fromMillis;
+    }
+  }
+
+  let normalized = stringValue;
+  if (/^\d{4}-\d{2}-\d{2}\s/.test(stringValue)) {
+    normalized = stringValue.replace(" ", "T");
+  }
+
+  const isoLocalMatch = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?$/
+  );
+
+  if (isoLocalMatch) {
+    const [
+      ,
+      yearStr,
+      monthStr,
+      dayStr,
+      hourStr,
+      minuteStr,
+      secondStr,
+      fractional,
+    ] = isoLocalMatch;
+    const year = Number(yearStr);
+    const month = Number(monthStr) - 1;
+    const day = Number(dayStr);
+    const hour = Number(hourStr);
+    const minute = Number(minuteStr);
+    const second = secondStr ? Number(secondStr) : 0;
+    const millisecond = fractional
+      ? Number(`${fractional}`.padEnd(3, "0").slice(0, 3))
+      : 0;
+
+    const candidate = new Date(
+      year,
+      month,
+      day,
+      hour,
+      minute,
+      second,
+      millisecond
+    );
+    if (!Number.isNaN(candidate.getTime())) {
+      return candidate;
+    }
+  }
+
+  const parsed = new Date(normalized);
   if (!Number.isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  return null;
+}
+
+function normalizeTimestamp(value) {
+  if (value == null) {
+    return null;
+  }
+
+  const parsed = parseInvoiceTimestamp(value);
+  if (parsed) {
     return parsed.toISOString();
   }
 
-  return stringValue;
+  return typeof value === "string" ? value : String(value);
 }
 
 function normalizeInvoice(invoice) {
@@ -170,6 +247,7 @@ function RealtimeView() {
   const knownInvoicesRef = useRef(new Set());
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
+  const autoRefreshTimerRef = useRef(null);
   const shouldReconnectRef = useRef(true);
   const intentionalCloseRef = useRef(false);
   const pendingManualReconnectRef = useRef(false);
@@ -557,6 +635,39 @@ function RealtimeView() {
   ]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const MIN_INTERVAL_MS = 15_000;
+    const MAX_INTERVAL_MS = 30_000;
+
+    const scheduleNextRefresh = () => {
+      const delay =
+        MIN_INTERVAL_MS + Math.random() * (MAX_INTERVAL_MS - MIN_INTERVAL_MS);
+
+      autoRefreshTimerRef.current = window.setTimeout(async () => {
+        autoRefreshTimerRef.current = null;
+
+        try {
+          await handleManualRefresh();
+        } finally {
+          scheduleNextRefresh();
+        }
+      }, delay);
+    };
+
+    scheduleNextRefresh();
+
+    return () => {
+      if (autoRefreshTimerRef.current) {
+        clearTimeout(autoRefreshTimerRef.current);
+        autoRefreshTimerRef.current = null;
+      }
+    };
+  }, [handleManualRefresh]);
+
+  useEffect(() => {
     shouldReconnectRef.current = true;
     connectWebSocket();
 
@@ -629,14 +740,11 @@ function RealtimeView() {
     });
 
     const entries = messages
-      .map((msg, idx) => {
-        const isoTimestamp =
-          msg.invoice_date || msg.timestamp || msg.created_at || null;
-        if (!isoTimestamp) {
-          return null;
-        }
-        const parsed = new Date(isoTimestamp);
-        if (Number.isNaN(parsed.getTime())) {
+      .map((msg) => {
+        const rawTimestamp =
+          msg.invoice_date ?? msg.timestamp ?? msg.created_at ?? null;
+        const parsed = parseInvoiceTimestamp(rawTimestamp);
+        if (!parsed) {
           return null;
         }
 
@@ -700,8 +808,16 @@ function RealtimeView() {
   const detailComputedTotal = hasSelectedInvoiceTotal
     ? toNumber(selectedInvoiceData.total)
     : detailSubtotal;
-  const selectedInvoiceDate = selectedInvoiceData?.invoice_date
-    ? new Date(selectedInvoiceData.invoice_date).toLocaleString("es-CO", {
+  const selectedInvoiceDateValue = selectedInvoiceData
+    ? parseInvoiceTimestamp(
+        selectedInvoiceData.invoice_date ??
+          selectedInvoiceData.timestamp ??
+          selectedInvoiceData.created_at ??
+          null
+      )
+    : null;
+  const selectedInvoiceDate = selectedInvoiceDateValue
+    ? selectedInvoiceDateValue.toLocaleString("es-CO", {
         dateStyle: "medium",
         timeStyle: "short",
       })
@@ -1004,7 +1120,7 @@ function RealtimeView() {
             variant="outline"
             onClick={handleManualRefresh}
             disabled={isRefreshing}
-            className="justify-center gap-2 text-sm font-semibold shadow-sm"
+            className=" hidden justify-center gap-2 text-sm font-semibold shadow-sm"
           >
             {isRefreshing ? "Actualizando..." : "Actualizar"}
           </Button>
@@ -1287,8 +1403,11 @@ function RealtimeView() {
                     {paginatedMessages.map((msg, i) => {
                       const isSelected =
                         selectedInvoices === msg.invoice_number;
-                      const invoiceDate = msg.invoice_date
-                        ? new Date(msg.invoice_date).toLocaleString("es-CO", {
+                      const parsedInvoiceDate = parseInvoiceTimestamp(
+                        msg.invoice_date ?? msg.timestamp ?? msg.created_at
+                      );
+                      const invoiceDate = parsedInvoiceDate
+                        ? parsedInvoiceDate.toLocaleString("es-CO", {
                             dateStyle: "short",
                             timeStyle: "short",
                           })
