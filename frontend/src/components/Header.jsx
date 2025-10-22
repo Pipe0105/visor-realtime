@@ -37,7 +37,7 @@ export default function Header({ onToggleTheme, theme }) {
               </Badge>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Monitor de facturación en vivo para sucursales Siesa
+              Monitor de facturación en vivo para Floresta
             </p>
           </div>
         </div>
