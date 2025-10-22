@@ -12,9 +12,9 @@ export default function MetricCard({
     color === "text-primary" ? "text-slate-900 dark:text-foreground" : color;
 
   return (
-    <Card className="border border-slate-200 bg-white text-center shadow-sm transition-colors dark:border-slate-800/70 dark:bg-slate-900/70">
+    <Card className="  border border-slate-200 bg-white text-left shadow-sm transition-colors dark:border-slate-800/70 dark:bg-slate-900/70">
       {" "}
-      <CardHeader className=" flex flex-col justify-center space-y-4 pb-5 text-center">
+      <CardHeader className=" flex flex-col justify-center space-y-4 pb-5 text-left">
         <div className="flex space-y-2 items-center justify-between">
           <p className="flex items-center justify-center text-xs font-semibold uppercase tracking-[0.28em] text-slate-600 dark:text-slate-300">
             {" "}

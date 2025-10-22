@@ -238,6 +238,7 @@ def process_file(file_path: str):
             "invoice_number": invoice.number,
             "items": len(items),
             "total": float(invoice.total or 0),
+            "subtotal": float(invoice.subtotal or 0),
             "file": filename,
             "invoice_date": invoice.invoice_date.isoformat() if invoice.invoice_date else None,
         }

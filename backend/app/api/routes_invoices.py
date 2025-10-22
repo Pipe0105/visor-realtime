@@ -176,10 +176,16 @@ def get_today_invoices(
     tomorrow = today + timedelta(days=1)
     filters = [Invoice.created_at >= today, Invoice.created_at < tomorrow]
 
-    total_invoices, total_sales_value = (
+    (
+        total_invoices,
+        total_sales_value,
+        total_net_sales_value,
+    ) = (
         db.query(
             func.count(Invoice.id),
             func.coalesce(func.sum(Invoice.total), 0),
+            func.coalesce(func.sum(Invoice.subtotal), 0),
+
         )
         .filter(*filters)
         .one()
@@ -187,6 +193,7 @@ def get_today_invoices(
 
     total_invoices = int(total_invoices or 0)
     total_sales = float(total_sales_value or 0)
+    total_net_sales = float(total_net_sales_value or 0)
     average_ticket = total_sales / total_invoices if total_invoices else 0.0
 
     items_count_subquery = (
@@ -200,6 +207,7 @@ def get_today_invoices(
         db.query(
             Invoice.number,
             Invoice.total,
+            Invoice.subtotal,
             Invoice.created_at,
             Invoice.invoice_date,
             Invoice.branch_id,
@@ -218,6 +226,8 @@ def get_today_invoices(
             {
                 "invoice_number": inv.number,
                 "total": float(inv.total or 0),
+                "invoice_number": inv.number,
+                "total": float(inv.total or 0),
                 "items": int(inv.items_count or 0),
                 "timestamp": inv.created_at.isoformat() if inv.created_at else None,
                 "invoice_date": inv.invoice_date.isoformat() if inv.invoice_date else None,
@@ -229,6 +239,7 @@ def get_today_invoices(
         "invoices": invoices,
         "total_invoices": total_invoices,
         "total_sales": total_sales,
+        "total_net_sales": total_net_sales,
         "average_ticket": average_ticket,
         "limit": limit,
         "offset": offset,

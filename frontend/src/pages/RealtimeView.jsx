@@ -142,6 +142,7 @@ function RealtimeView() {
   const [loadingItems, setLoadingItems] = useState(false);
   const [dailySummary, setDailySummary] = useState({
     totalSales: 0,
+    totalNetSales: 0,
     totalInvoices: 0,
     averageTicket: 0,
   });
@@ -180,11 +181,17 @@ function RealtimeView() {
           );
           const total = normalizedInvoices.reduce(
             (sum, f) => sum + (f.total || 0),
+            (sum, f) => sum + toNumber(f.total),
+            0
+          );
+          const totalNet = normalizedInvoices.reduce(
+            (sum, f) => sum + toNumber(f.subtotal ?? f.total),
             0
           );
           const count = normalizedInvoices.length;
           setDailySummary({
             totalSales: total,
+            totalNetSales: totalNet,
             totalInvoices: count,
             averageTicket: count ? total / count : 0,
           });
@@ -207,6 +214,9 @@ function RealtimeView() {
             .filter(Boolean)
         );
         const totalSales = toNumber(data.total_sales);
+        const totalNetSales = toNumber(
+          data.total_net_sales ?? data.total_without_taxes ?? data.total_sales
+        );
         const totalInvoices = Math.trunc(toNumber(data.total_invoices));
         const averageTicket = toNumber(
           data.average_ticket ??
@@ -214,6 +224,7 @@ function RealtimeView() {
         );
         setDailySummary({
           totalSales,
+          totalNetSales,
           totalInvoices,
           averageTicket,
         });
@@ -223,6 +234,7 @@ function RealtimeView() {
         knownInvoicesRef.current = new Set();
         setDailySummary({
           totalSales: 0,
+          totalNetSales: 0,
           totalInvoices: 0,
           averageTicket: 0,
         });
@@ -313,6 +325,9 @@ function RealtimeView() {
         const isNewDay = prev.length > 0 && messageDay !== previousDay;
 
         const invoiceTotal = toNumber(data.total);
+        const invoiceSubtotal = toNumber(
+          data.subtotal != null ? data.subtotal : data.total
+        );
 
         const normalized = normalizeInvoice(data);
 
@@ -350,6 +365,7 @@ function RealtimeView() {
             console.log("Nuevo dia detectado - reiniciando resumen diario");
             return {
               totalSales: invoiceTotal,
+              totalNetSales: invoiceSubtotal,
               totalInvoices: 1,
               averageTicket: invoiceTotal,
             };
@@ -361,11 +377,14 @@ function RealtimeView() {
 
           const baseSales = prevSummary?.totalSales || 0;
           const baseInvoices = prevSummary?.totalInvoices || 0;
+          const baseNetSales = prevSummary?.totalNetSales || 0;
           const totalSales = baseSales + invoiceTotal;
+          const totalNetSales = baseNetSales + invoiceSubtotal;
           const totalInvoices = baseInvoices + 1;
 
           return {
             totalSales,
+            totalNetSales,
             totalInvoices,
             averageTicket: totalInvoices ? totalSales / totalInvoices : 0,
           };
@@ -435,6 +454,7 @@ function RealtimeView() {
 
   const summary = {
     total: dailySummary.totalSales,
+    netTotal: dailySummary.totalNetSales,
     count: dailySummary.totalInvoices,
     avg: dailySummary.averageTicket,
   };
@@ -515,14 +535,19 @@ function RealtimeView() {
   const selectedInvoiceData = selectedInvoices
     ? messages.find((msg) => msg.invoice_number === selectedInvoices)
     : null;
+  const hasSelectedInvoiceTotal =
+    selectedInvoiceData && selectedInvoiceData.total != null;
   const detailItemsCount =
     invoiceItems.length > 0
       ? invoiceItems.length
       : selectedInvoiceData?.items ?? 0;
-  const detailComputedTotal =
+  const detailSubtotal =
     invoiceItems.length > 0
-      ? invoiceItems.reduce((sum, item) => sum + (item.subtotal || 0), 0)
-      : selectedInvoiceData?.total ?? 0;
+      ? invoiceItems.reduce((sum, item) => sum + toNumber(item.subtotal), 0)
+      : toNumber(selectedInvoiceData?.subtotal);
+  const detailComputedTotal = hasSelectedInvoiceTotal
+    ? toNumber(selectedInvoiceData.total)
+    : detailSubtotal;
   const selectedInvoiceDate = selectedInvoiceData?.invoice_date
     ? new Date(selectedInvoiceData.invoice_date).toLocaleString("es-CO", {
         dateStyle: "medium",
@@ -823,12 +848,18 @@ function RealtimeView() {
         </Badge>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className=" grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Total ventas"
           value={formatCurrency(summary.total)}
           color="text-primary"
           icon="💰"
+        />
+        <MetricCard
+          title="Total sin impuestos"
+          value={formatCurrency(summary.netTotal)}
+          color="text-emerald-500"
+          icon="🧾"
         />
         <MetricCard
           title="Facturas"
@@ -977,7 +1008,7 @@ function RealtimeView() {
                     <div className="flex flex-wrap gap-3">
                       <div>
                         <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-                          Total (mín / máx)
+                          Total con impuestos (mín / máx)
                         </label>
                         <div className="mt-1 flex items-center gap-2">
                           <input
