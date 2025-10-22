@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "../components/card";
 import { cn } from "../lib/utils";
+import { apiFetch, buildWebSocketUrl } from "../services/api";
 
 function formatCurrency(value) {
   if (value == null || isNaN(value)) return "$0";
@@ -169,7 +170,7 @@ function RealtimeView() {
   useEffect(() => {
     async function loadInvoices() {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/invoices/today`);
+        const res = await apiFetch("/invoices/today");
 
         const data = await res.json();
 
@@ -257,8 +258,8 @@ function RealtimeView() {
           params.set("branch", filters.branch);
         }
 
-        const response = await fetch(
-          `http://127.0.0.1:8000/invoices/daily-sales?${params.toString()}`
+        const response = await apiFetch(
+          `/invoices/daily-sales?${params.toString()}`
         );
 
         if (!response.ok) {
@@ -297,20 +298,17 @@ function RealtimeView() {
   }, [filters.branch]);
 
   useEffect(() => {
-    const baseProtocol = window.location.protocol === "https:" ? "wss" : "ws";
     const envUrl = import.meta?.env?.VITE_WS_URL;
-    const envHost = import.meta?.env?.VITE_WS_HOST;
-    const envPort = import.meta?.env?.VITE_WS_PORT;
     const envPath = import.meta?.env?.VITE_WS_PATH;
 
-    const defaultHost = envHost || window.location.hostname || "127.0.0.1";
-    const defaultPort = envPort || "8000";
-    const basePath = envPath || "/ws/FLO";
+    const trimmedEnvUrl =
+      typeof envUrl === "string" ? envUrl.trim() : undefined;
+    const trimmedEnvPath =
+      typeof envPath === "string" ? envPath.trim() : undefined;
 
-    const normalizedPath = basePath.startsWith("/") ? basePath : `/${basePath}`;
-    const websocketUrl =
-      envUrl ||
-      `${baseProtocol}://${defaultHost}:${defaultPort}${normalizedPath}`;
+    const websocketUrl = trimmedEnvUrl
+      ? buildWebSocketUrl(trimmedEnvUrl)
+      : buildWebSocketUrl(trimmedEnvPath || "/ws/FLO");
 
     let isUnmounted = false;
 
@@ -515,9 +513,7 @@ function RealtimeView() {
     setLoadingItems(true);
     setSelectedInvoices(invoice_number);
     try {
-      const res = await fetch(
-        `http://127.0.0.1:8000/invoices/${invoice_number}/items`
-      );
+      const res = await apiFetch(`/invoices/${invoice_number}/items`);
       const data = await res.json();
       if (data.items) {
         setInvoicesItems(data.items);
