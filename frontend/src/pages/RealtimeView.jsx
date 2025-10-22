@@ -31,6 +31,109 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeTimestamp(value) {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    const fromNumber = new Date(value);
+    if (!Number.isNaN(fromNumber.getTime())) {
+      return fromNumber.toISOString();
+    }
+    return String(value);
+  }
+
+  if (value instanceof Date) {
+    if (!Number.isNaN(value.getTime())) {
+      return value.toISOString();
+    }
+    return null;
+  }
+
+  const stringValue = String(value).trim();
+  if (!stringValue) {
+    return null;
+  }
+
+  const parsed = new Date(stringValue);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString();
+  }
+
+  return stringValue;
+}
+
+function normalizeInvoice(invoice) {
+  if (!invoice || typeof invoice !== "object") {
+    return invoice;
+  }
+
+  const normalizedTimestamp = normalizeTimestamp(
+    invoice.invoice_date ?? invoice.timestamp ?? invoice.created_at ?? null
+  );
+
+  const base = { ...invoice };
+
+  if (normalizedTimestamp != null) {
+    base.timestamp = normalizedTimestamp;
+  } else if (invoice.timestamp != null) {
+    base.timestamp =
+      normalizeTimestamp(invoice.timestamp) ?? invoice.timestamp ?? null;
+  }
+
+  return base;
+}
+
+function getInvoiceIdentifier(invoice) {
+  if (!invoice || typeof invoice !== "object") {
+    return null;
+  }
+
+  const directId =
+    invoice.invoice_id ??
+    invoice.invoice_number ??
+    invoice.id ??
+    invoice.uuid ??
+    null;
+
+  if (directId != null) {
+    return String(directId);
+  }
+
+  const normalizedTimestamp = normalizeTimestamp(
+    invoice.timestamp ?? invoice.invoice_date ?? invoice.created_at ?? null
+  );
+
+  if (invoice.invoice_number && normalizedTimestamp) {
+    return `${invoice.invoice_number}-${normalizedTimestamp}`;
+  }
+
+  if (normalizedTimestamp) {
+    return normalizedTimestamp;
+  }
+
+  return null;
+}
+
+function getInvoiceDay(value) {
+  const normalized = normalizeTimestamp(value);
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.length >= 10) {
+    return normalized.slice(0, 10);
+  }
+
+  const parsed = new Date(normalized);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return null;
+}
+
 function RealtimeView() {
   const [status, setStatus] = useState("Desconectado 🔴");
   const [messages, setMessages] = useState([]);
@@ -66,7 +169,7 @@ function RealtimeView() {
 
         if (Array.isArray(data)) {
           console.log("Facturas del día cargadas (modo legado):", data.length);
-          setMessages(data);
+          setMessages(data.map(normalizeInvoice));
           const total = data.reduce((sum, f) => sum + (f.total || 0), 0);
           const count = data.length;
           setDailySummary({
@@ -82,7 +185,11 @@ function RealtimeView() {
           Array.isArray(data.invoices) ? data.invoices.length : 0
         );
 
-        setMessages(Array.isArray(data.invoices) ? data.invoices : []);
+        setMessages(
+          Array.isArray(data.invoices)
+            ? data.invoices.map(normalizeInvoice)
+            : []
+        );
         const totalSales = toNumber(data.total_sales);
         const totalInvoices = Math.trunc(toNumber(data.total_invoices));
         const averageTicket = toNumber(
@@ -171,21 +278,50 @@ function RealtimeView() {
       console.log("📩 Mensaje recibido:", data);
 
       const today = new Date().toISOString().slice(0, 10);
-      const nextMessageDay = (value) => (value ? value.slice(0, 10) : null);
+      const nextMessageDay = (value) => getInvoiceDay(value);
+
       const messageDay =
         nextMessageDay(data.invoice_date) ||
         nextMessageDay(data.timestamp) ||
+        nextMessageDay(data.created_at) ||
         today;
 
       setMessages((prev) => {
         const previousDay = prev[0]
           ? nextMessageDay(prev[0].invoice_date) ||
             nextMessageDay(prev[0].timestamp) ||
+            nextMessageDay(prev[0].created_at) ||
             today
           : today;
         const isNewDay = prev.length > 0 && messageDay !== previousDay;
 
         const invoiceTotal = toNumber(data.total);
+
+        const normalized = normalizeInvoice(data);
+
+        const normalizedId = getInvoiceIdentifier(normalized);
+        const normalizedTimestampForMatch = normalizeTimestamp(
+          normalized.timestamp ??
+            normalized.invoice_date ??
+            normalized.created_at ??
+            null
+        );
+        const matchesExistingInvoice = (item) => {
+          if (normalizedId != null) {
+            return getInvoiceIdentifier(item) === normalizedId;
+          }
+
+          const itemTimestampForMatch = normalizeTimestamp(
+            item.timestamp ?? item.invoice_date ?? item.created_at ?? null
+          );
+
+          return (
+            item.invoice_number === normalized.invoice_number &&
+            itemTimestampForMatch === normalizedTimestampForMatch
+          );
+        };
+
+        const hasExistingInvoice = prev.some(matchesExistingInvoice);
 
         setDailySummary((prevSummary) => {
           if (isNewDay) {
@@ -195,6 +331,10 @@ function RealtimeView() {
               totalInvoices: 1,
               averageTicket: invoiceTotal,
             };
+          }
+
+          if (hasExistingInvoice) {
+            return prevSummary;
           }
 
           const baseSales = prevSummary?.totalSales || 0;
@@ -208,14 +348,17 @@ function RealtimeView() {
             averageTicket: totalInvoices ? totalSales / totalInvoices : 0,
           };
         });
-        const normalized = {
-          ...data,
-          timestamp:
-            data.invoice_date ?? data.timestamp ?? data.created_at ?? null,
-        };
 
         if (isNewDay) {
           return [normalized];
+        }
+
+        if (hasExistingInvoice) {
+          return prev.map((item) =>
+            matchesExistingInvoice(item)
+              ? normalizeInvoice({ ...item, ...normalized })
+              : item
+          );
         }
 
         return [normalized, ...prev];
