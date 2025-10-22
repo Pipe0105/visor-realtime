@@ -4,6 +4,7 @@ import MetricCard from "../components/MetricCard";
 import { Badge } from "../components/badge";
 import { Button, buttonVariants } from "../components/button";
 import DailyBillingChart from "../components/DailyBillingChart";
+import { apiFetch, buildWebSocketUrl } from "../services/api";
 
 import {
   Card,
@@ -166,7 +167,7 @@ function RealtimeView() {
   useEffect(() => {
     async function loadInvoices() {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/invoices/today`);
+        const res = await apiFetch(`/invoices/today`);
 
         const data = await res.json();
 
@@ -255,8 +256,8 @@ function RealtimeView() {
           params.set("branch", filters.branch);
         }
 
-        const response = await fetch(
-          `http://127.0.0.1:8000/invoices/daily-sales?${params.toString()}`
+        const response = await apiFetch(
+          `/invoices/daily-sales?${params.toString()}`
         );
 
         if (!response.ok) {
@@ -295,7 +296,7 @@ function RealtimeView() {
   }, [filters.branch]);
 
   useEffect(() => {
-    const ws = new WebSocket("ws://127.0.0.1:8000/ws/FLO");
+    const ws = new WebSocket(buildWebSocketUrl("/ws/FLO"));
 
     ws.onopen = () => {
       setStatus("Conectado 🟢");
@@ -435,9 +436,7 @@ function RealtimeView() {
     setLoadingItems(true);
     setSelectedInvoices(invoice_number);
     try {
-      const res = await fetch(
-        `http://127.0.0.1:8000/invoices/${invoice_number}/items`
-      );
+      const res = await apiFetch(`/invoices/${invoice_number}/items`);
       const data = await res.json();
       if (data.items) {
         setInvoicesItems(data.items);
