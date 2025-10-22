@@ -13,7 +13,6 @@ import {
   CardTitle,
 } from "../components/card";
 import { cn } from "../lib/utils";
-import { apiFetch, buildWebSocketUrl } from "../services/api";
 
 function formatCurrency(value) {
   if (value == null || isNaN(value)) return "$0";
@@ -161,16 +160,13 @@ function RealtimeView() {
   const [currentPage, setCurrentPage] = useState(1);
 
   const knownInvoicesRef = useRef(new Set());
-  const websocketRef = useRef(null);
-  const reconnectTimerRef = useRef(null);
-  const reconnectAttemptsRef = useRef(0);
 
   const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   useEffect(() => {
     async function loadInvoices() {
       try {
-        const res = await apiFetch("/invoices/today");
+        const res = await fetch(`http://127.0.0.1:8000/invoices/today`);
 
         const data = await res.json();
 
@@ -184,11 +180,12 @@ function RealtimeView() {
               .filter(Boolean)
           );
           const total = normalizedInvoices.reduce(
-            (sum, invoice) => sum + toNumber(invoice.total),
+            (sum, f) => sum + (f.total || 0),
+            (sum, f) => sum + toNumber(f.total),
             0
           );
           const totalNet = normalizedInvoices.reduce(
-            (sum, invoice) => sum + toNumber(invoice.subtotal ?? invoice.total),
+            (sum, f) => sum + toNumber(f.subtotal ?? f.total),
             0
           );
           const count = normalizedInvoices.length;
@@ -258,8 +255,8 @@ function RealtimeView() {
           params.set("branch", filters.branch);
         }
 
-        const response = await apiFetch(
-          `/invoices/daily-sales?${params.toString()}`
+        const response = await fetch(
+          `http://127.0.0.1:8000/invoices/daily-sales?${params.toString()}`
         );
 
         if (!response.ok) {
@@ -298,208 +295,133 @@ function RealtimeView() {
   }, [filters.branch]);
 
   useEffect(() => {
-    const envUrl = import.meta?.env?.VITE_WS_URL;
-    const envPath = import.meta?.env?.VITE_WS_PATH;
+    const ws = new WebSocket("ws://127.0.0.1:8000/ws/FLO");
 
-    const trimmedEnvUrl =
-      typeof envUrl === "string" ? envUrl.trim() : undefined;
-    const trimmedEnvPath =
-      typeof envPath === "string" ? envPath.trim() : undefined;
-
-    const websocketUrl = trimmedEnvUrl
-      ? buildWebSocketUrl(trimmedEnvUrl)
-      : buildWebSocketUrl(trimmedEnvPath || "/ws/FLO");
-
-    let isUnmounted = false;
-
-    const scheduleReconnect = () => {
-      if (isUnmounted) return;
-      const attempts = reconnectAttemptsRef.current + 1;
-      reconnectAttemptsRef.current = attempts;
-      const delay = Math.min(30000, 1000 * 2 ** (attempts - 1));
-      console.log(
-        `♻️ Reintentando WebSocket en ${delay}ms (intento ${attempts})`
-      );
-      reconnectTimerRef.current = setTimeout(connect, delay);
+    ws.onopen = () => {
+      setStatus("Conectado 🟢");
+      console.log("✅ WebSocket conectado");
     };
 
-    const cleanupTimer = () => {
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-    };
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log("📩 Mensaje recibido:", data);
 
-    const connect = () => {
-      cleanupTimer();
-      if (websocketRef.current) {
-        try {
-          websocketRef.current.close();
-        } catch (error) {
-          console.warn("⚠️ Error cerrando WebSocket previo", error);
-        }
-      }
+      const today = new Date().toISOString().slice(0, 10);
+      const nextMessageDay = (value) => getInvoiceDay(value);
 
-      const socket = new WebSocket(websocketUrl);
-      websocketRef.current = socket;
+      const messageDay =
+        nextMessageDay(data.invoice_date) ||
+        nextMessageDay(data.timestamp) ||
+        nextMessageDay(data.created_at) ||
+        today;
 
-      socket.onopen = () => {
-        reconnectAttemptsRef.current = 0;
-        setStatus("Conectado 🟢");
-        console.log("✅ WebSocket conectado");
-      };
+      setMessages((prev) => {
+        const previousDay = prev[0]
+          ? nextMessageDay(prev[0].invoice_date) ||
+            nextMessageDay(prev[0].timestamp) ||
+            nextMessageDay(prev[0].created_at) ||
+            today
+          : today;
+        const isNewDay = prev.length > 0 && messageDay !== previousDay;
 
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        console.log("📩 Mensaje recibido:", data);
+        const invoiceTotal = toNumber(data.total);
+        const invoiceSubtotal = toNumber(
+          data.subtotal != null ? data.subtotal : data.total
+        );
 
-        const today = new Date().toISOString().slice(0, 10);
-        const nextMessageDay = (value) => getInvoiceDay(value);
+        const normalized = normalizeInvoice(data);
 
-        const messageDay =
-          nextMessageDay(data.invoice_date) ||
-          nextMessageDay(data.timestamp) ||
-          nextMessageDay(data.created_at) ||
-          today;
+        const normalizedId = getInvoiceIdentifier(normalized);
 
-        setMessages((prev) => {
-          const previousDay = prev[0]
-            ? nextMessageDay(prev[0].invoice_date) ||
-              nextMessageDay(prev[0].timestamp) ||
-              nextMessageDay(prev[0].created_at) ||
-              today
-            : today;
-          const isNewDay = prev.length > 0 && messageDay !== previousDay;
+        const knownInvoices = knownInvoicesRef.current;
+        const hasKnownIdentifier =
+          normalizedId != null && knownInvoices.has(normalizedId);
+        const normalizedTimestampForMatch = normalizeTimestamp(
+          normalized.timestamp ??
+            normalized.invoice_date ??
+            normalized.created_at ??
+            null
+        );
+        const matchesExistingInvoice = (item) => {
+          if (normalizedId != null) {
+            return getInvoiceIdentifier(item) === normalizedId;
+          }
 
-          const invoiceTotal = toNumber(data.total);
-          const invoiceSubtotal = toNumber(
-            data.subtotal != null ? data.subtotal : data.total
+          const itemTimestampForMatch = normalizeTimestamp(
+            item.timestamp ?? item.invoice_date ?? item.created_at ?? null
           );
 
-          const normalized = normalizeInvoice(data);
-
-          const normalizedId = getInvoiceIdentifier(normalized);
-
-          const knownInvoices = knownInvoicesRef.current;
-          const hasKnownIdentifier =
-            normalizedId != null && knownInvoices.has(normalizedId);
-          const normalizedTimestampForMatch = normalizeTimestamp(
-            normalized.timestamp ??
-              normalized.invoice_date ??
-              normalized.created_at ??
-              null
+          return (
+            item.invoice_number === normalized.invoice_number &&
+            itemTimestampForMatch === normalizedTimestampForMatch
           );
-          const matchesExistingInvoice = (item) => {
-            if (normalizedId != null) {
-              return getInvoiceIdentifier(item) === normalizedId;
-            }
+        };
 
-            const itemTimestampForMatch = normalizeTimestamp(
-              item.timestamp ?? item.invoice_date ?? item.created_at ?? null
-            );
+        const hasExistingInvoice =
+          hasKnownIdentifier || prev.some(matchesExistingInvoice);
 
-            return (
-              item.invoice_number === normalized.invoice_number &&
-              itemTimestampForMatch === normalizedTimestampForMatch
-            );
-          };
-
-          const hasExistingInvoice =
-            hasKnownIdentifier || prev.some(matchesExistingInvoice);
-
-          setDailySummary((prevSummary) => {
-            if (isNewDay) {
-              console.log("Nuevo dia detectado - reiniciando resumen diario");
-              return {
-                totalSales: invoiceTotal,
-                totalNetSales: invoiceSubtotal,
-                totalInvoices: 1,
-                averageTicket: invoiceTotal,
-              };
-            }
-
-            if (hasExistingInvoice) {
-              if (normalizedId != null && !knownInvoices.has(normalizedId)) {
-                knownInvoices.add(normalizedId);
-              }
-              return prevSummary;
-            }
-
-            const baseSales = prevSummary?.totalSales || 0;
-            const baseInvoices = prevSummary?.totalInvoices || 0;
-            const baseNetSales = prevSummary?.totalNetSales || 0;
-            const totalSales = baseSales + invoiceTotal;
-            const totalNetSales = baseNetSales + invoiceSubtotal;
-            const totalInvoices = baseInvoices + 1;
-
-            return {
-              totalSales,
-              totalNetSales,
-              totalInvoices,
-              averageTicket: totalInvoices ? totalSales / totalInvoices : 0,
-            };
-          });
-
+        setDailySummary((prevSummary) => {
           if (isNewDay) {
-            knownInvoicesRef.current = new Set(
-              normalizedId != null ? [normalizedId] : []
-            );
-            return [normalized];
+            console.log("Nuevo dia detectado - reiniciando resumen diario");
+            return {
+              totalSales: invoiceTotal,
+              totalNetSales: invoiceSubtotal,
+              totalInvoices: 1,
+              averageTicket: invoiceTotal,
+            };
           }
 
           if (hasExistingInvoice) {
-            return prev.map((item) =>
-              matchesExistingInvoice(item)
-                ? normalizeInvoice({ ...item, ...normalized })
-                : item
-            );
+            return prevSummary;
           }
 
-          if (normalizedId != null) {
+          const baseSales = prevSummary?.totalSales || 0;
+          const baseInvoices = prevSummary?.totalInvoices || 0;
+          const baseNetSales = prevSummary?.totalNetSales || 0;
+          const totalSales = baseSales + invoiceTotal;
+          const totalNetSales = baseNetSales + invoiceSubtotal;
+          const totalInvoices = baseInvoices + 1;
+
+          return {
+            totalSales,
+            totalNetSales,
+            totalInvoices,
+            averageTicket: totalInvoices ? totalSales / totalInvoices : 0,
+          };
+        });
+
+        if (isNewDay) {
+          knownInvoicesRef.current = new Set(
+            normalizedId != null ? [normalizedId] : []
+          );
+          return [normalized];
+        }
+
+        if (hasExistingInvoice) {
+          if (normalizedId != null && !knownInvoices.has(normalizedId)) {
             knownInvoices.add(normalizedId);
           }
-
-          return [normalized, ...prev];
-        });
-      };
-
-      socket.onclose = (event) => {
-        console.log("⚠️ WebSocket cerrado", event?.code, event?.reason || "");
-        setStatus("Desconectado 🔴");
-        if (!isUnmounted) {
-          scheduleReconnect();
+          return prev.map((item) =>
+            matchesExistingInvoice(item)
+              ? normalizeInvoice({ ...item, ...normalized })
+              : item
+          );
         }
-      };
 
-      socket.onerror = (event) => {
-        console.error("❌ Error en WebSocket", event);
-        try {
-          socket.close();
-        } catch (error) {
-          console.warn("⚠️ No se pudo cerrar el WebSocket con error", error);
+        if (normalizedId != null) {
+          knownInvoices.add(normalizedId);
         }
-      };
+
+        return [normalized, ...prev];
+      });
     };
 
-    const connectOnMount = () => {
-      reconnectAttemptsRef.current = 0;
-      connect();
+    ws.onclose = () => {
+      setStatus("Desconectado 🔴");
+      console.log("⚠️ WebSocket cerrado");
     };
 
-    connectOnMount();
-
-    return () => {
-      isUnmounted = true;
-      cleanupTimer();
-      if (websocketRef.current) {
-        try {
-          websocketRef.current.close();
-        } catch (error) {
-          console.warn("⚠️ Error cerrando WebSocket al desmontar", error);
-        }
-      }
-      websocketRef.current = null;
-    };
+    return () => ws.close();
   }, []);
 
   async function handleInvoiceClick(invoice_number) {
@@ -513,7 +435,9 @@ function RealtimeView() {
     setLoadingItems(true);
     setSelectedInvoices(invoice_number);
     try {
-      const res = await apiFetch(`/invoices/${invoice_number}/items`);
+      const res = await fetch(
+        `http://127.0.0.1:8000/invoices/${invoice_number}/items`
+      );
       const data = await res.json();
       if (data.items) {
         setInvoicesItems(data.items);
@@ -924,7 +848,7 @@ function RealtimeView() {
         </Badge>
       </section>
 
-      <section className=" grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Total ventas"
           value={formatCurrency(summary.total)}
