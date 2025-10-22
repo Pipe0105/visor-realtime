@@ -13,6 +13,7 @@ from app.models.branch import Branch
 from app.services.realtime_manager import realtime_manager
 import asyncio
 import uuid
+from app.services.file_reader import trigger_manual_rescan
 
 router = APIRouter()
 
@@ -92,6 +93,27 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
         asyncio.run(realtime_manager.broadcast(branch_code, payload))
 
     return {"message": "Invoice created successfully", "invoice_id": str(invoice.id)}
+
+@router.post("/rescan")
+def rescan_invoices_folder():
+    """Solicita un re-escaneo manual de la carpeta de facturas."""
+
+    result = trigger_manual_rescan()
+    scheduled = int(result.get("scheduled", 0))
+    skipped = int(result.get("skipped", 0))
+    total = int(result.get("total", scheduled + skipped))
+
+    response = {
+        "status": "rescan_started",
+        "scheduled": scheduled,
+        "skipped": skipped,
+        "total": total,
+    }
+
+    if result.get("error"):
+        response["error"] = result["error"]
+
+    return response
 
 @router.get("/daily-sales")
 def get_daily_sales(

@@ -28,6 +28,10 @@ _processing_files_lock = threading.Lock()
 _processing_invoices = set()
 _processing_invoices_lock = threading.Lock()
 
+# Control de rescaneos manuales para evitar solapamiento
+_rescan_lock = threading.Lock()
+
+
 
 def _mark_file_processing(filename: str) -> bool:
     """Marca un archivo como en proceso. Devuelve False si ya estaba procesándose."""
@@ -293,6 +297,9 @@ def initial_scan():
     processed_files = {row[0] for row in db.query(Invoice.source_file).all()}
     db.close()
 
+    scheduled = 0
+    skipped = 0
+
     try:
         files = [f for f in os.listdir(NETWORK_PATH) if _is_valid_invoice_file(f)]
         print(f"📂 Archivos encontrados: {len(files)}")
@@ -301,12 +308,25 @@ def initial_scan():
             if filename not in processed_files:
                 file_path = os.path.join(NETWORK_PATH, filename)
                 schedule_file_processing(file_path)
+                scheduled += 1
 
             else:
+                skipped += 1
                 print(f"⏩ Saltando {filename} (ya registrado)")
         print("✅ Escaneo inicial completado.")
     except Exception as e:
         print(f"⚠️ Error en el escaneo inicial: {e}")
+        return {
+            "scheduled": scheduled,
+            "skipped": skipped,
+            "error": str(e),
+        }
+
+    return {
+        "scheduled": scheduled,
+        "skipped": skipped,
+        "total": scheduled + skipped,
+    }
 
 
 # ===============================
@@ -352,17 +372,49 @@ def start_file_monitor():
 
     # Escaneo inicial
     initial_scan()
+    with _rescan_lock:
+        initial_scan()
 
     # Monitor en tiempo real
     event_handler = InvoiceFileHandler()
-    observer = PollingObserver(timeout=POLL_INTERVAL)
-    observer.schedule(event_handler, NETWORK_PATH, recursive=False)
-    observer.start()
-    print("✅ Monitor de archivos activo (modo solo lectura)")
+    observer: Optional[PollingObserver] = None
 
-    try:
-        while True:
+    while True:
+        try:
+            if observer is None or not observer.is_alive():
+                if observer is not None:
+                    try:
+                        observer.stop()
+                        observer.join()
+                    except Exception:
+                        pass
+
+                observer = PollingObserver(timeout=POLL_INTERVAL)
+                observer.schedule(event_handler, NETWORK_PATH, recursive=False)
+                observer.start()
+                print("✅ Monitor de archivos activo (modo solo lectura)")
             time.sleep(5)
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
+        except KeyboardInterrupt:
+            if observer is not None:
+                observer.stop()
+                observer.join()
+            break
+        except Exception as exc:
+            print(f"⚠️ Monitor detenido por error inesperado: {exc}")
+            if observer is not None:
+                try:
+                    observer.stop()
+                    observer.join()
+                except Exception:
+                    pass
+                observer = None
+            time.sleep(5)
+
+
+def trigger_manual_rescan():
+    """Permite lanzar un rescan desde la API sin bloquear el monitor."""
+
+    with _rescan_lock:
+        result = initial_scan()
+
+    return result or {"scheduled": 0, "skipped": 0}

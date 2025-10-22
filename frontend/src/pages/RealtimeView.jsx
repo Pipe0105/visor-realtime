@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import DailySalesChart from "../components/DailySalesChart";
 import MetricCard from "../components/MetricCard";
 import { Badge } from "../components/badge";
@@ -159,150 +165,177 @@ function RealtimeView() {
   const [dailySalesHistory, setDailySalesHistory] = useState([]);
   const [activePanel, setActivePanel] = useState("facturas");
   const [currentPage, setCurrentPage] = useState(1);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const knownInvoicesRef = useRef(new Set());
+  const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const shouldReconnectRef = useRef(true);
+  const intentionalCloseRef = useRef(false);
+  const pendingManualReconnectRef = useRef(false);
 
   const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
-  useEffect(() => {
-    async function loadInvoices() {
-      try {
-        const res = await apiFetch(`/invoices/today`);
+  const loadInvoices = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/invoices/today`);
 
-        const data = await res.json();
+      const data = await res.json();
 
-        if (Array.isArray(data)) {
-          console.log("Facturas del día cargadas (modo legado):", data.length);
-          const normalizedInvoices = data.map(normalizeInvoice);
-          setMessages(normalizedInvoices);
-          knownInvoicesRef.current = new Set(
-            normalizedInvoices
-              .map((invoice) => getInvoiceIdentifier(invoice))
-              .filter(Boolean)
-          );
-          const total = normalizedInvoices.reduce(
-            (sum, f) => sum + toNumber(f.total),
-            0
-          );
-          const totalNet = normalizedInvoices.reduce(
-            (sum, f) => sum + toNumber(f.subtotal ?? f.total),
-            0
-          );
-          const count = normalizedInvoices.length;
-          setDailySummary({
-            totalSales: total,
-            totalNetSales: totalNet,
-            totalInvoices: count,
-            averageTicket: count ? total / count : 0,
-          });
-          return;
-        }
-
-        console.log(
-          "Facturas del día cargadas:",
-          Array.isArray(data.invoices) ? data.invoices.length : 0
-        );
-
-        const normalizedInvoices = Array.isArray(data.invoices)
-          ? data.invoices.map(normalizeInvoice)
-          : [];
-
+      if (Array.isArray(data)) {
+        console.log("Facturas del día cargadas (modo legado):", data.length);
+        const normalizedInvoices = data.map(normalizeInvoice);
         setMessages(normalizedInvoices);
         knownInvoicesRef.current = new Set(
           normalizedInvoices
             .map((invoice) => getInvoiceIdentifier(invoice))
             .filter(Boolean)
         );
-        const totalSales = toNumber(data.total_sales);
-        const totalNetSales = toNumber(
-          data.total_net_sales ?? data.total_without_taxes ?? data.total_sales
+        const total = normalizedInvoices.reduce(
+          (sum, f) => sum + toNumber(f.total),
+          0
         );
-        const totalInvoices = Math.trunc(toNumber(data.total_invoices));
-        const averageTicket = toNumber(
-          data.average_ticket ??
-            (totalInvoices ? totalSales / totalInvoices : 0)
+        const totalNet = normalizedInvoices.reduce(
+          (sum, f) => sum + toNumber(f.subtotal ?? f.total),
+          0
         );
+        const count = normalizedInvoices.length;
         setDailySummary({
-          totalSales,
-          totalNetSales,
-          totalInvoices,
-          averageTicket,
+          totalSales: total,
+          totalNetSales: totalNet,
+          totalInvoices: count,
+          averageTicket: count ? total / count : 0,
         });
-      } catch (err) {
-        console.error("Error cargando facturas", err);
-        setMessages([]);
-        knownInvoicesRef.current = new Set();
-        setDailySummary({
-          totalSales: 0,
-          totalNetSales: 0,
-          totalInvoices: 0,
-          averageTicket: 0,
-        });
+        return normalizedInvoices;
       }
-    }
 
-    loadInvoices();
+      console.log(
+        "Facturas del día cargadas:",
+        Array.isArray(data.invoices) ? data.invoices.length : 0
+      );
+
+      const normalizedInvoices = Array.isArray(data.invoices)
+        ? data.invoices.map(normalizeInvoice)
+        : [];
+
+      setMessages(normalizedInvoices);
+      knownInvoicesRef.current = new Set(
+        normalizedInvoices
+          .map((invoice) => getInvoiceIdentifier(invoice))
+          .filter(Boolean)
+      );
+      const totalSales = toNumber(data.total_sales);
+      const totalNetSales = toNumber(
+        data.total_net_sales ?? data.total_without_taxes ?? data.total_sales
+      );
+      const totalInvoices = Math.trunc(toNumber(data.total_invoices));
+      const averageTicket = toNumber(
+        data.average_ticket ?? (totalInvoices ? totalSales / totalInvoices : 0)
+      );
+      setDailySummary({
+        totalSales,
+        totalNetSales,
+        totalInvoices,
+        averageTicket,
+      });
+      return normalizedInvoices;
+    } catch (err) {
+      console.error("Error cargando facturas", err);
+      setMessages([]);
+      knownInvoicesRef.current = new Set();
+      setDailySummary({
+        totalSales: 0,
+        totalNetSales: 0,
+        totalInvoices: 0,
+        averageTicket: 0,
+      });
+      throw err;
+    }
   }, []);
+
+  useEffect(() => {
+    loadInvoices().catch(() => {});
+  }, [loadInvoices]);
+
+  const loadDailySalesHistory = useCallback(
+    async (branchValue) => {
+      const params = new URLSearchParams();
+      params.set("days", "10");
+      const targetBranch =
+        branchValue ??
+        (filters.branch && filters.branch !== "" ? filters.branch : "all");
+
+      if (targetBranch && targetBranch !== "all") {
+        params.set("branch", targetBranch);
+      }
+
+      const response = await apiFetch(
+        `/invoices/daily-sales?${params.toString()}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+
+      if (Array.isArray(payload)) {
+        return payload;
+      }
+
+      if (Array.isArray(payload?.history)) {
+        return payload.history;
+      }
+
+      return [];
+    },
+    [filters.branch]
+  );
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadDailySalesHistory() {
-      try {
-        const params = new URLSearchParams();
-        params.set("days", "10");
-        if (filters.branch && filters.branch !== "all") {
-          params.set("branch", filters.branch);
+    loadDailySalesHistory()
+      .then((history) => {
+        if (!cancelled) {
+          setDailySalesHistory(history);
         }
-
-        const response = await apiFetch(
-          `/invoices/daily-sales?${params.toString()}`
-        );
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const payload = await response.json();
-        if (cancelled) {
-          return;
-        }
-
-        if (Array.isArray(payload)) {
-          setDailySalesHistory(payload);
-          return;
-        }
-
-        if (Array.isArray(payload?.history)) {
-          setDailySalesHistory(payload.history);
-          return;
-        }
-
-        setDailySalesHistory([]);
-      } catch (error) {
+      })
+      .catch((error) => {
         console.error("Error cargando historial de ventas", error);
         if (!cancelled) {
           setDailySalesHistory([]);
         }
-      }
-    }
-
-    loadDailySalesHistory();
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [filters.branch]);
+  }, [loadDailySalesHistory]);
 
-  useEffect(() => {
-    const ws = new WebSocket(buildWebSocketUrl("/ws/FLO"));
+  const connectWebSocket = useCallback(() => {
+    if (typeof window === "undefined" || !shouldReconnectRef.current) {
+      return;
+    }
 
-    ws.onopen = () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
+    setStatus("Conectando 🟡");
+
+    const socket = new WebSocket(buildWebSocketUrl("/ws/FLO"));
+    wsRef.current = socket;
+
+    socket.onopen = () => {
+      pendingManualReconnectRef.current = false;
+      intentionalCloseRef.current = false;
       setStatus("Conectado 🟢");
       console.log("✅ WebSocket conectado");
     };
 
-    ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
       console.log("📩 Mensaje recibido:", data);
 
@@ -416,13 +449,134 @@ function RealtimeView() {
       });
     };
 
-    ws.onclose = () => {
-      setStatus("Desconectado 🔴");
-      console.log("⚠️ WebSocket cerrado");
+    socket.onerror = (event) => {
+      console.error("⚠️ Error en WebSocket", event);
     };
 
-    return () => ws.close();
+    socket.onclose = () => {
+      wsRef.current = null;
+      console.log("⚠️ WebSocket cerrado");
+
+      if (intentionalCloseRef.current) {
+        intentionalCloseRef.current = false;
+        if (pendingManualReconnectRef.current && shouldReconnectRef.current) {
+          pendingManualReconnectRef.current = false;
+          connectWebSocket();
+        } else if (!shouldReconnectRef.current) {
+          setStatus("Desconectado 🔴");
+        }
+        return;
+      }
+
+      if (!shouldReconnectRef.current) {
+        setStatus("Desconectado 🔴");
+        return;
+      }
+
+      setStatus("Reconectando ♻️");
+      reconnectTimerRef.current = window.setTimeout(() => {
+        connectWebSocket();
+      }, 4000);
+    };
   }, []);
+
+  const forceReconnect = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setStatus("Reconectando ♻️");
+
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
+    const currentSocket = wsRef.current;
+    if (currentSocket) {
+      pendingManualReconnectRef.current = true;
+      intentionalCloseRef.current = true;
+      try {
+        currentSocket.close();
+      } catch (error) {
+        console.error("Error cerrando WebSocket para reconectar", error);
+        pendingManualReconnectRef.current = false;
+        intentionalCloseRef.current = false;
+        connectWebSocket();
+      }
+      return;
+    }
+
+    pendingManualReconnectRef.current = false;
+    intentionalCloseRef.current = false;
+    connectWebSocket();
+  }, [connectWebSocket]);
+
+  const handleManualRefresh = useCallback(async () => {
+    if (isRefreshing) {
+      return;
+    }
+
+    setIsRefreshing(true);
+
+    try {
+      forceReconnect();
+
+      try {
+        const response = await apiFetch(`/invoices/rescan`, { method: "POST" });
+        if (response.ok) {
+          await response.json().catch(() => null);
+        }
+      } catch (error) {
+        console.error("Error solicitando re-escaneo de facturas", error);
+      }
+
+      await loadInvoices().catch(() => {});
+
+      try {
+        const history = await loadDailySalesHistory(filters.branch);
+        setDailySalesHistory(history);
+      } catch (error) {
+        console.error(
+          "Error actualizando historial durante el refresco",
+          error
+        );
+        setDailySalesHistory([]);
+      }
+    } catch (error) {
+      console.error("Error general durante el refresco manual", error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [
+    filters.branch,
+    forceReconnect,
+    isRefreshing,
+    loadDailySalesHistory,
+    loadInvoices,
+  ]);
+
+  useEffect(() => {
+    shouldReconnectRef.current = true;
+    connectWebSocket();
+
+    return () => {
+      shouldReconnectRef.current = false;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (wsRef.current) {
+        intentionalCloseRef.current = true;
+        try {
+          wsRef.current.close();
+        } catch (error) {
+          console.error("Error cerrando WebSocket en limpieza", error);
+        }
+      }
+      pendingManualReconnectRef.current = false;
+    };
+  }, [connectWebSocket]);
 
   async function handleInvoiceClick(invoice_number) {
     if (selectedInvoices === invoice_number) {
@@ -838,12 +992,23 @@ function RealtimeView() {
             cada factura.
           </p>
         </div>
-        <Badge
-          variant={connectionHealthy ? "success" : "danger"}
-          className="justify-center self-start rounded-full px-4 py-1.5 text-sm font-semibold shadow-sm"
-        >
-          {status}
-        </Badge>
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <Badge
+            variant={connectionHealthy ? "success" : "danger"}
+            className="justify-center rounded-full px-4 py-1.5 text-sm font-semibold shadow-sm"
+          >
+            {status}
+          </Badge>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="justify-center gap-2 text-sm font-semibold shadow-sm"
+          >
+            {isRefreshing ? "Actualizando..." : "Actualizar"}
+          </Button>
+        </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
