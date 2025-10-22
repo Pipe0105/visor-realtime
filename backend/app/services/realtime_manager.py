@@ -40,7 +40,6 @@ class RealtimeManager:
     async def connect(self, websocket: WebSocket, branch: str):
         if self.loop is None:
             self.loop = asyncio.get_running_loop()
-        await websocket.accept()
         if branch not in self.connections:
             self.connections[branch] = []
             self.daily_messages[branch] = []

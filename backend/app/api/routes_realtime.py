@@ -6,6 +6,7 @@ router = APIRouter()
 @router.websocket("/ws/{branch_code}")
 async def websocket_endpoint(websocket: WebSocket, branch_code: str):
     """Canal en tiempo real por sede (Floresta, Cedritos, etc.)"""
+    await websocket.accept()
     await realtime_manager.connect(websocket, branch_code)
     try:
         while True:
