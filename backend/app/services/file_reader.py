@@ -15,8 +15,10 @@ from app.services.realtime_manager import realtime_manager
 from datetime import datetime
 
 
-# Ruta de solo lectura
-NETWORK_PATH = getattr(settings, "INVOICE_PATH", r"\\192.168.32.100\prt")
+# Ruta de solo lectura y configuración de archivos
+NETWORK_PATH = settings.INVOICE_PATH
+FILE_PREFIX = settings.INVOICE_FILE_PREFIX.upper()
+POLL_INTERVAL = settings.INVOICE_POLL_INTERVAL
 
 # Control de archivos en proceso para evitar duplicados
 _processing_files = set()
@@ -231,6 +233,13 @@ def process_file(file_path: str):
 # ===============================
 #   ESCANEO INICIAL
 # ===============================
+def _is_valid_invoice_file(filename: str) -> bool:
+    """Valida el nombre del archivo por extensión y prefijo."""
+
+    name = filename.upper()
+    return name.startswith(FILE_PREFIX) and name.endswith(".P02")
+
+
 def initial_scan():
     """Procesa archivos existentes al iniciar (solo nuevos)."""
     print("🔍 Escaneo inicial de la carpeta de facturas...")
@@ -239,7 +248,7 @@ def initial_scan():
     db.close()
 
     try:
-        files = [f for f in os.listdir(NETWORK_PATH) if f.endswith(".P02")]
+        files = [f for f in os.listdir(NETWORK_PATH) if _is_valid_invoice_file(f)]
         print(f"📂 Archivos encontrados: {len(files)}")
 
         for filename in files:
@@ -261,7 +270,11 @@ class InvoiceFileHandler(FileSystemEventHandler):
     """Detecta archivos nuevos y los procesa en un hilo separado."""
 
     def on_created(self, event):
-        if not event.is_directory and event.src_path.endswith(".P02"):
+        if event.is_directory:
+            return
+
+        filename = os.path.basename(event.src_path)
+        if _is_valid_invoice_file(filename):
             print(f"🆕 Nuevo archivo detectado: {event.src_path}")
             schedule_file_processing(event.src_path)
 
@@ -296,7 +309,7 @@ def start_file_monitor():
 
     # Monitor en tiempo real
     event_handler = InvoiceFileHandler()
-    observer = PollingObserver()
+    observer = PollingObserver(timeout=POLL_INTERVAL)
     observer.schedule(event_handler, NETWORK_PATH, recursive=False)
     observer.start()
     print("✅ Monitor de archivos activo (modo solo lectura)")
