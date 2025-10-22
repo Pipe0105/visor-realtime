@@ -461,48 +461,10 @@ function RealtimeView() {
           totalFilteredInvoices
         );
 
-  const paginationRange = useMemo(() => {
-    const siblingCount = 1;
-    const totalPageNumbers = siblingCount * 2 + 5;
-
-    if (totalPages <= totalPageNumbers) {
-      return Array.from({ length: totalPages }, (_, index) => index + 1);
-    }
-
-    const leftSiblingIndex = Math.max(currentPage - siblingCount, 1);
-    const rightSiblingIndex = Math.min(currentPage + siblingCount, totalPages);
-
-    const shouldShowLeftEllipsis = leftSiblingIndex > 2;
-    const shouldShowRightEllipsis = rightSiblingIndex < totalPages - 1;
-
-    if (!shouldShowLeftEllipsis && shouldShowRightEllipsis) {
-      const leftItemCount = 3 + siblingCount * 2;
-      return [
-        ...Array.from({ length: leftItemCount }, (_, index) => index + 1),
-        "end-ellipsis",
-        totalPages,
-      ];
-    }
-
-    if (shouldShowLeftEllipsis && !shouldShowRightEllipsis) {
-      const rightItemCount = 3 + siblingCount * 2;
-      return [
-        1,
-        "start-ellipsis",
-        ...Array.from(
-          { length: rightItemCount },
-          (_, index) => totalPages - rightItemCount + index + 1
-        ),
-      ];
-    }
-
-    const middleRange = Array.from(
-      { length: siblingCount * 2 + 1 },
-      (_, index) => leftSiblingIndex + index
-    );
-
-    return [1, "start-ellipsis", ...middleRange, "end-ellipsis", totalPages];
-  }, [currentPage, totalPages]);
+  const paginationRange = useMemo(
+    () => Array.from({ length: totalPages }, (_, index) => index + 1),
+    [totalPages]
+  );
 
   useEffect(() => {
     setCurrentPage((prev) => {
@@ -1053,46 +1015,32 @@ function RealtimeView() {
                           <span aria-hidden="true">←</span>
                           <span className="hidden sm:inline">Anterior</span>
                         </Button>
-                        {paginationRange.map((item, index) => {
-                          if (typeof item === "number") {
-                            return (
-                              <button
-                                key={`page-${item}`}
-                                type="button"
-                                onClick={() => setCurrentPage(item)}
-                                className={buttonVariants({
-                                  variant:
-                                    item === currentPage
-                                      ? "default"
-                                      : "outline",
-                                  size: "sm",
-                                  className: cn(
-                                    "h-9 w-9 px-0",
-                                    item === currentPage
-                                      ? "shadow-sm"
-                                      : "bg-background dark:bg-slate-900"
-                                  ),
-                                })}
-                                aria-current={
-                                  item === currentPage ? "page" : undefined
-                                }
-                                aria-label={`Ir a la página ${item}`}
-                              >
-                                {item}
-                              </button>
-                            );
-                          }
-
-                          return (
-                            <span
-                              key={`${item}-${index}`}
-                              className="inline-flex h-9 w-9 items-center justify-center text-slate-400"
-                              aria-hidden="true"
-                            >
-                              …
-                            </span>
-                          );
-                        })}
+                        {paginationRange.map((pageNumber) => (
+                          <button
+                            key={`page-${pageNumber}`}
+                            type="button"
+                            onClick={() => setCurrentPage(pageNumber)}
+                            className={buttonVariants({
+                              variant:
+                                pageNumber === currentPage
+                                  ? "default"
+                                  : "outline",
+                              size: "sm",
+                              className: cn(
+                                "h-9 w-9 px-0",
+                                pageNumber === currentPage
+                                  ? "shadow-sm"
+                                  : "bg-background dark:bg-slate-900"
+                              ),
+                            })}
+                            aria-current={
+                              pageNumber === currentPage ? "page" : undefined
+                            }
+                            aria-label={`Ir a la página ${pageNumber}`}
+                          >
+                            {pageNumber}
+                          </button>
+                        ))}
                         <Button
                           type="button"
                           variant="outline"
