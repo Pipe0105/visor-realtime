@@ -10,6 +10,13 @@ async def websocket_endpoint(websocket: WebSocket, branch_code: str):
     await realtime_manager.connect(websocket, branch_code)
     try:
         while True:
-            await websocket.receive_text()  # mantenemos viva la conexión
-    except WebSocketDisconnect:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+    except (WebSocketDisconnect, RuntimeError):
+        # RuntimeError can be raised by Starlette when the client disconnects
+        # abruptly after the connection is accepted. Treat it the same way as
+        # a regular WebSocketDisconnect so the realtime service keeps working.
+        pass
+    finally:
         await realtime_manager.disconnect(websocket, branch_code)
