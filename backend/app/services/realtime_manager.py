@@ -3,6 +3,8 @@ from fastapi import WebSocket
 import asyncio
 import json
 from datetime import datetime
+from starlette.websockets import WebSocketDisconnect
+
 
 class RealtimeManager:
     """Administra conexiones WebSocket activas y mantiene solo las facturas del día actual."""
@@ -48,10 +50,20 @@ class RealtimeManager:
 
         # Enviar facturas del día actual al conectar
         today = datetime.now().date()
-        for msg in self.daily_messages[branch]:
-            if self._message_date(msg) == today:
-
+        for msg in list(self.daily_messages[branch]):
+            if self._message_date(msg) != today:
+                continue
+            try:
                 await websocket.send_text(json.dumps(msg, ensure_ascii=False))
+            except WebSocketDisconnect:
+                await self.disconnect(websocket, branch)
+                return
+            except Exception as exc:
+                print(
+                    f"⚠️ Error al reenviar historial a {branch}: {exc}"
+                )
+                await self.disconnect(websocket, branch)
+                return
 
     async def disconnect(self, websocket: WebSocket, branch: str):
         if branch in self.connections and websocket in self.connections[branch]:
