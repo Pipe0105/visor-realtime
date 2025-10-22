@@ -67,14 +67,15 @@ def _release_invoice(invoice_number: Optional[str]):
         _processing_invoices.discard(invoice_number)
 
 
-def _read_file_with_retry(file_path: str, attempts: int = 5, delay: float = 1.0) -> Optional[str]:
+def _read_file_with_retry(file_path: str, attempts: int = 5, delay: float = 1.0) -> Optional[bytes]:
     """Intenta leer un archivo varias veces para evitar errores por bloqueos de red."""
 
     last_error: Optional[Exception] = None
 
     for attempt in range(1, attempts + 1):
         try:
-            with open(file_path, "r", encoding="latin-1") as f:
+            with open(file_path, "rb") as f:
+
                 return f.read()
         except FileNotFoundError:
             print(f"⚠️ El archivo desapareció antes de poder leerlo: {file_path}")
@@ -98,7 +99,42 @@ def _read_file_with_retry(file_path: str, attempts: int = 5, delay: float = 1.0)
 
 
 # ===============================
-#   PROCESAR ARCHIVO .P02
+#   UTILIDADES DE PARSEO
+# ===============================
+def _parse_invoice_issue_date(raw_date: Optional[str]) -> Optional[datetime]:
+    if not raw_date:
+        return None
+
+    raw_date = raw_date.strip()
+    if not raw_date:
+        return None
+
+    candidates = (
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%d",
+        "%Y-%b-%d %I:%M %p",
+        "%Y-%b-%d",
+    )
+
+    for fmt in candidates:
+        try:
+            return datetime.strptime(raw_date, fmt)
+        except ValueError:
+            continue
+
+    try:
+        return datetime.fromisoformat(raw_date)
+    except ValueError:
+        pass
+
+    return None
+
+
+# ===============================
+#   PROCESAR ARCHIVO XML
 # ===============================
 def process_file(file_path: str):
     """Lee, procesa y guarda una factura sin bloquear el hilo principal."""
@@ -117,17 +153,10 @@ def process_file(file_path: str):
         items = parsed["items"]
         totals = parsed["totals"]
 
-        raw_date = header.get("date")
-        invoice_date = None
-        if raw_date:
-            for fmt in ("%Y-%b-%d %I:%M %p", "%Y-%b-%d"):
-                try:
-                    invoice_date = datetime.strptime(raw_date, fmt)
-                    break
-                except ValueError:
-                    pass
-            if not invoice_date:
-                print(f"⚠️ No se pudo parsear la fecha '{raw_date}'")
+        raw_date = header.get("issue_date") or header.get("date")
+        invoice_date = _parse_invoice_issue_date(raw_date)
+        if raw_date and invoice_date is None:
+            print(f"⚠️ No se pudo parsear la fecha '{raw_date}'")
 
     except Exception as e:
         print(f"⚠️ Error al parsear {file_path}: {e}")
@@ -170,10 +199,10 @@ def process_file(file_path: str):
         invoice = Invoice(
             number=invoice_number,
             branch_id=None,
-            subtotal=totals.get("subtotal", 0),
-            vat=totals.get("iva", 0),
-            discount=totals.get("discount", 0),
-            total=totals.get("total", 0),
+            subtotal=float(totals.get("subtotal", 0) or 0),
+            vat=float(totals.get("iva", 0) or 0),
+            discount=float(totals.get("discount", 0) or 0),
+            total=float(totals.get("total", 0) or 0),
             source_file=filename,
             invoice_date=invoice_date,
         )
@@ -185,13 +214,19 @@ def process_file(file_path: str):
         for item in items:
             db_item = InvoiceItem(
                 invoice_id=invoice.id,
-                line_number=item["line_number"],
-                product_code=item["product_code"],
-                description=item["description"],
-                quantity=item["quantity"],
-                unit_price=item["unit_price"],
-                subtotal=item["subtotal"],
+                line_number=int(item.get("line_number") or 0),
+                product_code=item.get("product_code"),
+                description=item.get("description"),
+                quantity=float(item.get("quantity") or 0),
+                unit_price=float(item.get("unit_price") or 0),
+                subtotal=float(item.get("subtotal") or 0),
             )
+            if hasattr(db_item, "unit"):
+                db_item.unit = item.get("unit")
+            if hasattr(db_item, "iva_percent"):
+                db_item.iva_percent = item.get("iva_percent")
+            if hasattr(db_item, "iva_amount"):
+                db_item.iva_amount = item.get("iva_amount")
             db.add(db_item)
         db.commit()
 
@@ -236,8 +271,18 @@ def process_file(file_path: str):
 def _is_valid_invoice_file(filename: str) -> bool:
     """Valida el nombre del archivo por extensión y prefijo."""
 
-    name = filename.upper()
-    return name.startswith(FILE_PREFIX) and name.endswith(".P02")
+    name_upper = filename.upper()
+    if not name_upper.startswith(FILE_PREFIX):
+        return False
+
+    base, ext = os.path.splitext(name_upper)
+    if ext != ".XML":
+        return False
+
+    if base.endswith(".XML"):
+        return False
+
+    return True
 
 
 def initial_scan():

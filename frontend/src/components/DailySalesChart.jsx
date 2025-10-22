@@ -16,7 +16,7 @@ const currencyFormatter = new Intl.NumberFormat("es-CO", {
 
 const width = 640;
 const height = 260;
-const padding = { top: 16, right: 24, bottom: 40, left: 64 };
+const padding = { top: 16, right: 24, bottom: 40, left: 96 };
 
 function getDayLabel(value) {
   const date = new Date(`${value}T00:00:00`);
@@ -126,7 +126,8 @@ export default function DailySalesChart({ data }) {
                 aria-label="Gráfica de ventas acumuladas por día"
                 width={width}
                 height={height}
-                className="min-w-full text-slate-500 dark:text-slate-400"
+                className="min-w-full"
+                className="min-w-full"
               >
                 <defs>
                   <linearGradient id="sales-area" x1="0" x2="0" y1="0" y2="1">
@@ -159,7 +160,7 @@ export default function DailySalesChart({ data }) {
                       x={point.x}
                       y={height - 12}
                       textAnchor="middle"
-                      className="text-[11px] font-medium uppercase tracking-[0.16em]"
+                      className="fill-slate-600 text-[11px] font-medium uppercase tracking-[0.16em] dark:fill-slate-100"
                     >
                       {point.label}
                     </text>
@@ -190,7 +191,7 @@ export default function DailySalesChart({ data }) {
                           x={padding.left - 12}
                           y={y + 4}
                           textAnchor="end"
-                          className="text-[11px] font-medium"
+                          className="fill-slate-600 text-[11px] font-medium dark:fill-slate-200"
                         >
                           {currencyFormatter.format(Math.round(value))}
                         </text>
