@@ -31,7 +31,7 @@ export default function Header({ onToggleTheme, theme }) {
               </h1>
               <Badge
                 variant="outline"
-                className="rounded-full border-transparent bg-slate-100/80 px-3 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800/70 dark:text-slate-100"
+                className="rounded-full border-transparent bg-slate-900 px-3 py-1 text-xs text-slate-50 dark:bg-slate-100 dark:text-slate-900 font-semibold"
               >
                 Floresta
               </Badge>
