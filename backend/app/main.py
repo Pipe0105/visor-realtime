@@ -6,6 +6,8 @@ from app.services.file_reader import start_file_monitor
 from fastapi.middleware.cors import CORSMiddleware
 from app.services.realtime_manager import realtime_manager
 from app.config import settings
+from fastapi.middleware.cors import CORSMiddleware
+from app.config import settings
 
 
 # 🚀 CONFIGURACIÓN PRINCIPAL DE LA API
@@ -30,6 +32,9 @@ if settings.CORS_ALLOW_ALL:
 else:
     cors_options["allow_origins"] = settings.CORS_ALLOWED_ORIGINS
     cors_options["allow_credentials"] = settings.CORS_ALLOW_CREDENTIALS
+    
+app.add_middleware(CORSMiddleware, **cors_options)
+
 
 app.add_middleware(
     CORSMiddleware,

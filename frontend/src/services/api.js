@@ -29,15 +29,6 @@ function getWindowLocation() {
 let cachedApiBaseUrl = null;
 
 function computeApiBaseUrl() {
-  const explicitUrl = safeTrim(import.meta?.env?.VITE_API_URL ?? "");
-  if (explicitUrl) {
-    try {
-      return stripTrailingSlash(new URL(explicitUrl).toString());
-    } catch (error) {
-      return stripTrailingSlash(explicitUrl);
-    }
-  }
-
   const location = getWindowLocation();
 
   const protocolHint = safeTrim(import.meta?.env?.VITE_API_PROTOCOL ?? "");
@@ -62,9 +53,9 @@ function computeApiBaseUrl() {
     base += `:${port}`;
   }
 
-  const basePath = safeTrim(import.meta?.env?.VITE_API_PATH ?? "");
-  if (basePath) {
-    base += basePath.startsWith("/") ? basePath : `/${basePath}`;
+  const apiPath = safeTrim(import.meta?.env?.VITE_API_PATH ?? "");
+  if (apiPath) {
+    base += apiPath.startsWith("/") ? apiPath : `/${apiPath}`;
   }
 
   return stripTrailingSlash(base);
@@ -74,7 +65,6 @@ export function getApiBaseUrl() {
   if (!cachedApiBaseUrl) {
     cachedApiBaseUrl = computeApiBaseUrl();
   }
-
   return cachedApiBaseUrl;
 }
 
@@ -83,16 +73,14 @@ export function getApiBaseComponents() {
 
   try {
     return new URL(`${baseUrl}/`);
-  } catch (error) {
+  } catch {
     return null;
   }
 }
 
 export function buildApiUrl(path = "") {
   const baseUrl = getApiBaseUrl();
-  if (!path) {
-    return baseUrl;
-  }
+  if (!path) return baseUrl;
 
   if (/^https?:\/\//i.test(path)) {
     return path;
@@ -100,7 +88,6 @@ export function buildApiUrl(path = "") {
 
   const normalizedBase = stripTrailingSlash(baseUrl);
   const normalizedPath = ensureLeadingSlash(path);
-
   return `${normalizedBase}${normalizedPath}`;
 }
 
@@ -108,19 +95,22 @@ export function apiFetch(path, options) {
   return fetch(buildApiUrl(path), options);
 }
 
+// -------------------- WEBSOCKET --------------------
+
 function computeWsAuthority() {
   const apiComponents = getApiBaseComponents();
   const location = getWindowLocation();
 
   const protocolHint = safeTrim(import.meta?.env?.VITE_WS_PROTOCOL ?? "");
-  const referenceProtocol = protocolHint || apiComponents?.protocol || location.protocol || "http:";
+  const referenceProtocol =
+    protocolHint || apiComponents?.protocol || location.protocol || "http:";
   const normalizedProtocol = referenceProtocol.replace(/:$/, "").toLowerCase();
   const protocol =
     normalizedProtocol === "https"
       ? "wss"
       : normalizedProtocol === "wss" || normalizedProtocol === "ws"
-        ? normalizedProtocol
-        : "ws";
+      ? normalizedProtocol
+      : "ws";
 
   let host = safeTrim(import.meta?.env?.VITE_WS_HOST ?? "");
   if (!host) {
@@ -133,9 +123,7 @@ function computeWsAuthority() {
   }
 
   let port = safeTrim(String(portValue));
-  if (port === "0") {
-    port = "";
-  }
+  if (port === "0") port = "";
 
   const authority = port && !host.includes(":") ? `${host}:${port}` : host;
 
@@ -147,23 +135,22 @@ export function getWsBaseUrl() {
 }
 
 export function buildWebSocketUrl(path = "") {
+  // Si el path ya es una URL completa (ws:// o wss://)
   if (path && /^wss?:\/\//i.test(path)) {
     return stripTrailingSlash(path);
   }
 
+  // Si hay un VITE_WS_URL explícito en .env
   const explicitUrl = safeTrim(import.meta?.env?.VITE_WS_URL ?? "");
   if (explicitUrl) {
     if (/^wss?:\/\//i.test(explicitUrl)) {
       return stripTrailingSlash(explicitUrl);
     }
-
     return `${getWsBaseUrl()}${ensureLeadingSlash(explicitUrl)}`;
   }
 
-  const basePath = safeTrim(path || import.meta?.env?.VITE_WS_PATH ?? "");
-  if (!basePath) {
-    return getWsBaseUrl();
-  }
-
-  return `${getWsBaseUrl()}${ensureLeadingSlash(basePath)}`;
+  // Si hay un path por variable (VITE_WS_PATH)
+  const envPath = safeTrim(import.meta?.env?.VITE_WS_PATH ?? "");
+  const finalPath = path || envPath || "";
+  return `${getWsBaseUrl()}${ensureLeadingSlash(finalPath)}`;
 }
