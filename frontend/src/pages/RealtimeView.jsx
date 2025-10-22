@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import DailySalesChart from "../components/DailySalesChart";
 import MetricCard from "../components/MetricCard";
 import { Badge } from "../components/badge";
@@ -158,6 +158,8 @@ function RealtimeView() {
   const [activePanel, setActivePanel] = useState("facturas");
   const [currentPage, setCurrentPage] = useState(1);
 
+  const knownInvoicesRef = useRef(new Set());
+
   const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   useEffect(() => {
@@ -169,9 +171,18 @@ function RealtimeView() {
 
         if (Array.isArray(data)) {
           console.log("Facturas del día cargadas (modo legado):", data.length);
-          setMessages(data.map(normalizeInvoice));
-          const total = data.reduce((sum, f) => sum + (f.total || 0), 0);
-          const count = data.length;
+          const normalizedInvoices = data.map(normalizeInvoice);
+          setMessages(normalizedInvoices);
+          knownInvoicesRef.current = new Set(
+            normalizedInvoices
+              .map((invoice) => getInvoiceIdentifier(invoice))
+              .filter(Boolean)
+          );
+          const total = normalizedInvoices.reduce(
+            (sum, f) => sum + (f.total || 0),
+            0
+          );
+          const count = normalizedInvoices.length;
           setDailySummary({
             totalSales: total,
             totalInvoices: count,
@@ -185,10 +196,15 @@ function RealtimeView() {
           Array.isArray(data.invoices) ? data.invoices.length : 0
         );
 
-        setMessages(
-          Array.isArray(data.invoices)
-            ? data.invoices.map(normalizeInvoice)
-            : []
+        const normalizedInvoices = Array.isArray(data.invoices)
+          ? data.invoices.map(normalizeInvoice)
+          : [];
+
+        setMessages(normalizedInvoices);
+        knownInvoicesRef.current = new Set(
+          normalizedInvoices
+            .map((invoice) => getInvoiceIdentifier(invoice))
+            .filter(Boolean)
         );
         const totalSales = toNumber(data.total_sales);
         const totalInvoices = Math.trunc(toNumber(data.total_invoices));
@@ -204,6 +220,7 @@ function RealtimeView() {
       } catch (err) {
         console.error("Error cargando facturas", err);
         setMessages([]);
+        knownInvoicesRef.current = new Set();
         setDailySummary({
           totalSales: 0,
           totalInvoices: 0,
@@ -300,6 +317,10 @@ function RealtimeView() {
         const normalized = normalizeInvoice(data);
 
         const normalizedId = getInvoiceIdentifier(normalized);
+
+        const knownInvoices = knownInvoicesRef.current;
+        const hasKnownIdentifier =
+          normalizedId != null && knownInvoices.has(normalizedId);
         const normalizedTimestampForMatch = normalizeTimestamp(
           normalized.timestamp ??
             normalized.invoice_date ??
@@ -321,7 +342,8 @@ function RealtimeView() {
           );
         };
 
-        const hasExistingInvoice = prev.some(matchesExistingInvoice);
+        const hasExistingInvoice =
+          hasKnownIdentifier || prev.some(matchesExistingInvoice);
 
         setDailySummary((prevSummary) => {
           if (isNewDay) {
@@ -350,15 +372,25 @@ function RealtimeView() {
         });
 
         if (isNewDay) {
+          knownInvoicesRef.current = new Set(
+            normalizedId != null ? [normalizedId] : []
+          );
           return [normalized];
         }
 
         if (hasExistingInvoice) {
+          if (normalizedId != null && !knownInvoices.has(normalizedId)) {
+            knownInvoices.add(normalizedId);
+          }
           return prev.map((item) =>
             matchesExistingInvoice(item)
               ? normalizeInvoice({ ...item, ...normalized })
               : item
           );
+        }
+
+        if (normalizedId != null) {
+          knownInvoices.add(normalizedId);
         }
 
         return [normalized, ...prev];
