@@ -181,7 +181,6 @@ function RealtimeView() {
               .filter(Boolean)
           );
           const total = normalizedInvoices.reduce(
-            (sum, f) => sum + (f.total || 0),
             (sum, f) => sum + toNumber(f.total),
             0
           );
