@@ -46,12 +46,28 @@ function buildAreaPath(points, baseline) {
 }
 
 export default function DailySalesChart({ data }) {
+  const sortedData = useMemo(() => {
+    if (!Array.isArray(data)) {
+      return [];
+    }
+
+    return [...data].sort((a, b) => {
+      const aDate = new Date(`${a?.date ?? ""}T00:00:00`);
+      const bDate = new Date(`${b?.date ?? ""}T00:00:00`);
+
+      if (!Number.isNaN(aDate.getTime()) && !Number.isNaN(bDate.getTime())) {
+        return aDate.getTime() - bDate.getTime();
+      }
+
+      return String(a?.date ?? "").localeCompare(String(b?.date ?? ""));
+    });
+  }, [data]);
   const chart = useMemo(() => {
-    if (!Array.isArray(data) || data.length === 0) {
+    if (!Array.isArray(sortedData) || sortedData.length === 0) {
       return { points: [], labels: [], maxValue: 0 };
     }
 
-    const maxValue = data.reduce(
+    const maxValue = sortedData.reduce(
       (acc, point) => Math.max(acc, point.cumulative),
       0
     );
@@ -60,7 +76,7 @@ export default function DailySalesChart({ data }) {
     const plotWidth = width - padding.left - padding.right;
     const baseline = padding.top + plotHeight;
 
-    const points = data.map((point, index) => {
+    const points = sortedData.map((point, index) => {
       const x = padding.left + (plotWidth * index) / denominator;
       const value = point.cumulative || 0;
       const y =
@@ -78,7 +94,7 @@ export default function DailySalesChart({ data }) {
     const labels = points.map((point) => point.label);
 
     return { points, labels, maxValue, baseline, plotHeight };
-  }, [data]);
+  }, [sortedData]);
 
   return (
     <Card className="w-full border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
@@ -213,7 +229,7 @@ export default function DailySalesChart({ data }) {
             </div>
 
             <dl className="grid gap-2 sm:grid-cols-3">
-              {data.map((point, index) => (
+              {sortedData.map((point, index) => (
                 <div
                   key={`stat-${point.date}-${index}`}
                   className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:text-slate-300"
