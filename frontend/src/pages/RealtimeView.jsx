@@ -162,6 +162,7 @@ function RealtimeView() {
   const websocketRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
+  const pingIntervalRef = useRef(null);
 
   const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -313,6 +314,13 @@ function RealtimeView() {
       }, delay);
     };
 
+    const clearPingInterval = () => {
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+    };
+
     const connect = () => {
       if (!isActive) {
         return;
@@ -322,6 +330,7 @@ function RealtimeView() {
           ? "Reconectando... 🟡"
           : "Conectando... 🟡"
       );
+      clearPingInterval();
       const ws = new WebSocket("ws://127.0.0.1:8000/ws/FLO");
       websocketRef.current = ws;
 
@@ -332,6 +341,21 @@ function RealtimeView() {
         reconnectAttemptsRef.current = 0;
         setStatus("Conectado 🟢");
         console.log("✅ WebSocket conectado");
+        clearPingInterval();
+        pingIntervalRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.send(
+                JSON.stringify({
+                  type: "ping",
+                  timestamp: new Date().toISOString(),
+                })
+              );
+            } catch (error) {
+              console.warn("⚠️ No se pudo enviar ping WebSocket", error);
+            }
+          }
+        }, 30000);
       };
 
       ws.onmessage = (event) => {
@@ -339,6 +363,9 @@ function RealtimeView() {
           return;
         }
         const data = JSON.parse(event.data);
+        if (data && typeof data === "object" && data.type === "pong") {
+          return;
+        }
         console.log("📩 Mensaje recibido:", data);
 
         const today = new Date().toISOString().slice(0, 10);
@@ -452,12 +479,16 @@ function RealtimeView() {
         if (websocketRef.current === ws) {
           websocketRef.current = null;
         }
+        clearPingInterval();
+
         setStatus("Reconectando... 🟡");
         scheduleReconnect();
       };
 
       ws.onerror = (event) => {
         console.error("⚠️ WebSocket error", event);
+        clearPingInterval();
+
         ws.close();
       };
     };
@@ -467,6 +498,8 @@ function RealtimeView() {
     return () => {
       isActive = false;
       clearReconnectTimer();
+      clearPingInterval();
+
       if (websocketRef.current) {
         websocketRef.current.close();
         websocketRef.current = null;
