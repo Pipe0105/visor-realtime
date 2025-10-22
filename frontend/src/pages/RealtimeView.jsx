@@ -183,12 +183,11 @@ function RealtimeView() {
               .filter(Boolean)
           );
           const total = normalizedInvoices.reduce(
-            (sum, f) => sum + (f.total || 0),
-            (sum, f) => sum + toNumber(f.total),
+            (sum, invoice) => sum + toNumber(invoice.total),
             0
           );
           const totalNet = normalizedInvoices.reduce(
-            (sum, f) => sum + toNumber(f.subtotal ?? f.total),
+            (sum, invoice) => sum + toNumber(invoice.subtotal ?? invoice.total),
             0
           );
           const count = normalizedInvoices.length;
@@ -425,11 +424,7 @@ function RealtimeView() {
               if (normalizedId != null && !knownInvoices.has(normalizedId)) {
                 knownInvoices.add(normalizedId);
               }
-              return prev.map((item) =>
-                matchesExistingInvoice(item)
-                  ? normalizeInvoice({ ...item, ...normalized })
-                  : item
-              );
+              return prevSummary;
             }
 
             const baseSales = prevSummary?.totalSales || 0;
@@ -455,7 +450,11 @@ function RealtimeView() {
           }
 
           if (hasExistingInvoice) {
-            return prevSummary;
+            return prev.map((item) =>
+              matchesExistingInvoice(item)
+                ? normalizeInvoice({ ...item, ...normalized })
+                : item
+            );
           }
 
           if (normalizedId != null) {
