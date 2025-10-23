@@ -12,6 +12,8 @@ import { LineChart } from "@mui/x-charts/LineChart";
 const DEFAULT_HEIGHT = 320;
 const FALLBACK_WIDTH = 720;
 const CHART_MARGIN = { left: 72, right: 24, top: 48, bottom: 48 };
+const MAX_POINTS = 1200;
+const VISIBLE_PADDING_RATIO = 0.05;
 
 const axisCurrencyFormatter = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -39,6 +41,75 @@ function formatTimeLabel(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function downsampleLTTB(data, threshold) {
+  if (!Array.isArray(data) || data.length <= threshold || threshold < 3) {
+    return data;
+  }
+
+  const sampled = [];
+  const bucketSize = (data.length - 2) / (threshold - 2);
+  let a = 0;
+  sampled.push(data[a]);
+
+  for (let i = 0; i < threshold - 2; i += 1) {
+    const rangeStart = Math.floor((i + 1) * bucketSize) + 1;
+    const rangeEnd = Math.floor((i + 2) * bucketSize) + 1;
+
+    const bucketStart = Math.min(rangeStart, data.length - 1);
+    const bucketEnd = Math.min(rangeEnd, data.length);
+
+    let avgX = 0;
+    let avgY = 0;
+    const avgRangeLength = bucketEnd - rangeStart;
+
+    if (avgRangeLength > 0) {
+      for (let j = rangeStart; j < bucketEnd; j += 1) {
+        const point = data[j] || data[data.length - 1];
+        avgX += Number(point.timestamp) || 0;
+        avgY += Number(point.total) || 0;
+      }
+
+      avgX /= avgRangeLength;
+      avgY /= avgRangeLength;
+    } else {
+      const fallbackPoint = data[bucketStart] || data[a];
+      avgX = Number(fallbackPoint.timestamp) || 0;
+      avgY = Number(fallbackPoint.total) || 0;
+    }
+
+    let selectedIndex = bucketStart;
+    let maxArea = -1;
+
+    const pointA = data[a];
+    const ax = Number(pointA.timestamp) || 0;
+    const ay = Number(pointA.total) || 0;
+
+    for (let j = bucketStart; j < bucketEnd; j += 1) {
+      const point = data[j];
+      if (!point) {
+        continue;
+      }
+
+      const bx = Number(point.timestamp) || 0;
+      const by = Number(point.total) || 0;
+
+      const area =
+        Math.abs((ax - avgX) * (by - ay) - (ax - bx) * (avgY - ay)) * 0.5;
+
+      if (area > maxArea) {
+        maxArea = area;
+        selectedIndex = j;
+      }
+    }
+
+    sampled.push(data[selectedIndex]);
+    a = selectedIndex;
+  }
+
+  sampled.push(data[data.length - 1]);
+  return sampled;
 }
 
 export default function DailyBillingChart({
@@ -430,6 +501,41 @@ export default function DailyBillingChart({
     };
   }, [handleWheel]);
 
+  const filteredDataset = useMemo(() => {
+    if (dataset.length === 0) {
+      return dataset;
+    }
+
+    if (!xDomain || xDomain.length !== 2) {
+      return dataset;
+    }
+
+    const [domainStart, domainEnd] = xDomain;
+    if (!Number.isFinite(domainStart) || !Number.isFinite(domainEnd)) {
+      return dataset;
+    }
+
+    const padding = Math.max(
+      (domainEnd - domainStart) * VISIBLE_PADDING_RATIO,
+      1
+    );
+    const min = domainStart - padding;
+    const max = domainEnd + padding;
+
+    const filtered = dataset.filter(
+      (item) => item.timestamp >= min && item.timestamp <= max
+    );
+
+    return filtered.length > 0 ? filtered : dataset;
+  }, [dataset, xDomain]);
+
+  const chartDataset = useMemo(() => {
+    if (filteredDataset.length <= MAX_POINTS) {
+      return filteredDataset;
+    }
+    return downsampleLTTB(filteredDataset, MAX_POINTS);
+  }, [filteredDataset]);
+
   if (dataset.length === 0) {
     return (
       <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
@@ -464,7 +570,7 @@ export default function DailyBillingChart({
       onMouseDown={handlePointerDown}
     >
       <LineChart
-        dataset={dataset}
+        dataset={chartDataset}
         xAxis={[
           {
             scaleType: "time",
@@ -484,13 +590,13 @@ export default function DailyBillingChart({
             id: "billing-total",
             dataKey: "total",
             label: "Facturación",
-            curve: "catmullRom",
-            area: true,
+            curve: chartDataset.length > 480 ? "linear" : "catmullRom",
+            area: chartDataset.length <= 1600,
             color: "#2563eb",
             valueFormatter: formatter,
-            showMark: true,
+            showMark: chartDataset.length <= 240,
             areaOpacity: 0.14,
-            mark: { size: 6 },
+            mark: chartDataset.length <= 240 ? { size: 6 } : undefined,
           },
           {
             id: "billing-average",
