@@ -12,6 +12,8 @@ import {
 
 const PAGE_SIZE = 100;
 
+const isInvoiceRecord = (value) => value && typeof value === "object";
+
 export function useRealtimeInvoices() {
   const [status, setStatus] = useState("Desconectado 🔴");
   const [messages, setMessages] = useState([]);
@@ -56,6 +58,9 @@ export function useRealtimeInvoices() {
 
       if (Array.isArray(data)) {
         const normalizedInvoices = data.map(normalizeInvoice);
+        const normalizedInvoices = data
+          .map(normalizeInvoice)
+          .filter(isInvoiceRecord);
         const sortedInvoices = sortInvoicesByTimestampDesc(normalizedInvoices);
         setMessages(sortedInvoices);
         knownInvoicesRef.current = new Set(
@@ -82,7 +87,7 @@ export function useRealtimeInvoices() {
       }
 
       const normalizedInvoices = Array.isArray(data.invoices)
-        ? data.invoices.map(normalizeInvoice)
+        ? data.invoices.map(normalizeInvoice).filter(isInvoiceRecord)
         : [];
 
       const sortedInvoices = sortInvoicesByTimestampDesc(normalizedInvoices);
@@ -205,45 +210,75 @@ export function useRealtimeInvoices() {
     };
 
     socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch (error) {
+        console.error("⚠️ No se pudo parsear el mensaje de WebSocket", error);
+        return;
+      }
       console.log("📩 Mensaje recibido:", data);
 
+      if (!isInvoiceRecord(normalized)) {
+        console.warn(
+          "⚠️ Mensaje de WebSocket ignorado tras normalizar la factura",
+          data
+        );
+        return;
+      }
+
       const today = new Date().toISOString().slice(0, 10);
-      const nextMessageDay = (value) => getInvoiceDay(value);
+
+      if (!isInvoiceRecord(data)) {
+        console.warn(
+          "⚠️ Mensaje de WebSocket ignorado: no contiene una factura válida",
+          data
+        );
+        return;
+      }
+
+      const normalized = normalizeInvoice(data);
 
       const messageDay =
-        nextMessageDay(data.invoice_date) ||
-        nextMessageDay(data.timestamp) ||
-        nextMessageDay(data.created_at) ||
+        getInvoiceDay(normalized.invoice_date) ||
+        getInvoiceDay(normalized.timestamp) ||
+        getInvoiceDay(normalized.created_at) ||
         today;
 
+      const invoiceTotal = toNumber(data.total);
+      const invoiceSubtotal = toNumber(
+        data.subtotal != null ? data.subtotal : data.total
+      );
+
+      const normalizedId = getInvoiceIdentifier(normalized);
+      const normalizedTimestampForMatch = normalizeTimestamp(
+        normalized.timestamp ??
+          normalized.invoice_date ??
+          normalized.created_at ??
+          null
+      );
+
       setMessages((prev) => {
-        const previousDay = prev[0]
-          ? nextMessageDay(prev[0].invoice_date) ||
-            nextMessageDay(prev[0].timestamp) ||
-            nextMessageDay(prev[0].created_at) ||
+        const safePrev = prev.filter(isInvoiceRecord);
+
+        const previousDay = safePrev[0]
+          ? getInvoiceDay(safePrev[0].invoice_date) ||
+            getInvoiceDay(safePrev[0].timestamp) ||
+            getInvoiceDay(safePrev[0].created_at) ||
             today
           : today;
-        const isNewDay = prev.length > 0 && messageDay !== previousDay;
 
-        const invoiceTotal = toNumber(data.total);
-        const invoiceSubtotal = toNumber(
-          data.subtotal != null ? data.subtotal : data.total
-        );
+        const isNewDay = safePrev.length > 0 && messageDay !== previousDay;
 
-        const normalized = normalizeInvoice(data);
-        const normalizedId = getInvoiceIdentifier(normalized);
-
-        const knownInvoices = knownInvoicesRef.current;
-        const hasKnownIdentifier =
-          normalizedId != null && knownInvoices.has(normalizedId);
-        const normalizedTimestampForMatch = normalizeTimestamp(
-          normalized.timestamp ??
-            normalized.invoice_date ??
-            normalized.created_at ??
-            null
+        const knownInvoices = new Set(
+          safePrev
+            .map((invoice) => getInvoiceIdentifier(invoice))
+            .filter(Boolean)
         );
         const matchesExistingInvoice = (item) => {
+          if (!isInvoiceRecord(item)) {
+            return false;
+          }
           if (normalizedId != null) {
             return getInvoiceIdentifier(item) === normalizedId;
           }
@@ -259,7 +294,9 @@ export function useRealtimeInvoices() {
         };
 
         const hasExistingInvoice =
-          hasKnownIdentifier || prev.some(matchesExistingInvoice);
+          normalizedId != null
+            ? knownInvoices.has(normalizedId)
+            : safePrev.some(matchesExistingInvoice);
 
         setDailySummary((prevSummary) => {
           if (isNewDay) {
@@ -278,6 +315,7 @@ export function useRealtimeInvoices() {
 
           const baseInvoices = prevSummary?.totalInvoices || 0;
           const baseNetSales = prevSummary?.totalNetSales || 0;
+          const baseSales = prevSummary?.totalSales || 0;
           const totalSales = baseSales + invoiceTotal;
           const totalNetSales = baseNetSales + invoiceSubtotal;
           const totalInvoices = baseInvoices + 1;
@@ -290,30 +328,32 @@ export function useRealtimeInvoices() {
           };
         });
 
-        if (isNewDay) {
-          knownInvoicesRef.current = new Set(
-            normalizedId != null ? [normalizedId] : []
-          );
-          return [normalized];
-        }
+        let nextMessages;
 
-        if (hasExistingInvoice) {
-          if (normalizedId != null && !knownInvoices.has(normalizedId)) {
-            knownInvoices.add(normalizedId);
-          }
-          const updatedInvoices = prev.map((item) =>
+        if (isNewDay) {
+          nextMessages = [normalized];
+        } else if (hasExistingInvoice) {
+          const updatedInvoices = safePrev.map((item) =>
             matchesExistingInvoice(item)
               ? normalizeInvoice({ ...item, ...normalized })
               : item
           );
-          return sortInvoicesByTimestampDesc(updatedInvoices);
+          nextMessages = updatedInvoices;
+        } else {
+          nextMessages = [normalized, ...safePrev];
         }
 
-        if (normalizedId != null) {
-          knownInvoices.add(normalizedId);
-        }
+        const orderedMessages = sortInvoicesByTimestampDesc(
+          nextMessages.filter(isInvoiceRecord)
+        );
 
-        return sortInvoicesByTimestampDesc([normalized, ...prev]);
+        knownInvoicesRef.current = new Set(
+          orderedMessages
+            .map((invoice) => getInvoiceIdentifier(invoice))
+            .filter(Boolean)
+        );
+
+        return orderedMessages;
       });
     };
 
