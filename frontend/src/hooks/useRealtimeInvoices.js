@@ -11,6 +11,7 @@ import {
 } from "../lib/invoiceUtils";
 
 const PAGE_SIZE = 100;
+const LIVE_TOTAL_TOLERANCE = 1;
 
 const isInvoiceRecord = (value) => value && typeof value === "object";
 
@@ -1104,10 +1105,16 @@ export function useRealtimeInvoices() {
     let cumulative = 0;
     return sortedDates.map((date) => {
       const baseTotal = historyTotals.get(date) || 0;
-      const liveTotal = liveTotalsByDay.has(date)
-        ? liveTotalsByDay.get(date)
-        : null;
-      const total = liveTotal != null ? liveTotal : baseTotal;
+      const hasLiveTotal = liveTotalsByDay.has(date);
+      const liveTotal = hasLiveTotal ? toNumber(liveTotalsByDay.get(date)) : 0;
+
+      let total = baseTotal;
+      if (hasLiveTotal) {
+        total =
+          liveTotal + LIVE_TOTAL_TOLERANCE >= baseTotal
+            ? Math.max(baseTotal, liveTotal)
+            : baseTotal + liveTotal;
+      }
       cumulative += total;
       return {
         date,
