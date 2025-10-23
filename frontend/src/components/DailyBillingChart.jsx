@@ -229,6 +229,9 @@ export default function DailyBillingChart({
       );
 
       event.preventDefault();
+      if (typeof event.stopPropagation === "function") {
+        event.stopPropagation();
+      }
 
       const direction = event.deltaY > 0 ? 1 : -1;
       const zoomIntensity = 0.18;
@@ -265,6 +268,23 @@ export default function DailyBillingChart({
     [sliderBounds, width, xDomain]
   );
 
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) {
+      return () => {};
+    }
+
+    const handleNativeWheel = (event) => {
+      handleWheel(event);
+    };
+
+    element.addEventListener("wheel", handleNativeWheel, { passive: false });
+
+    return () => {
+      element.removeEventListener("wheel", handleNativeWheel);
+    };
+  }, [handleWheel]);
+
   if (dataset.length === 0) {
     return (
       <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
@@ -280,7 +300,7 @@ export default function DailyBillingChart({
   }
 
   return (
-    <Box ref={containerRef} sx={{ width: "100%" }} onWheel={handleWheel}>
+    <Box ref={containerRef} sx={{ width: "100%" }}>
       <LineChart
         dataset={dataset}
         xAxis={[
