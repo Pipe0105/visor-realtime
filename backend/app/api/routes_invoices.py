@@ -22,6 +22,7 @@ router = APIRouter()
 FIRST_CHUNK_INVOICES = 100
 DEFAULT_FORECAST_HISTORY_DAYS = 14
 
+
 @router.get("/")
 def get_invoices(db: Session = Depends(get_db)):
     ensure_daily_reset(db)
@@ -29,17 +30,18 @@ def get_invoices(db: Session = Depends(get_db)):
     return {
         "invoices": [
             {
-                "id": str(i.id),
-                "number": i.number,
-                "subtotal": float(i.subtotal),
-                "vat": float(i.vat),
-                "discount": float(i.discount),
-                "total": float(i.total),
-                "created_at": i.created_at
+                "id": str(invoice.id),
+                "number": invoice.number,
+                "subtotal": float(invoice.subtotal),
+                "vat": float(invoice.vat),
+                "discount": float(invoice.discount),
+                "total": float(invoice.total),
+                "created_at": invoice.created_at,
             }
-            for i in invoices
+            for invoice in invoices
         ]
     }
+
 
 @router.post("/")
 def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
@@ -59,7 +61,6 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(invoice)
 
-    # Insert items
     for item in data.items:
         db_item = InvoiceItem(
             invoice_id=invoice.id,
@@ -68,11 +69,12 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
             description=item.description,
             quantity=item.quantity,
             unit_price=item.unit_price,
-            subtotal=item.subtotal
+            subtotal=item.subtotal,
         )
         db.add(db_item)
 
     db.commit()
+
     branch_code = "FLO"
     if invoice.branch_id:
         branch = db.query(Branch).filter(Branch.id == invoice.branch_id).first()
@@ -87,7 +89,9 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
         "items": len(data.items),
         "total": float(invoice.total or 0),
         "file": invoice.source_file,
-        "invoice_date": invoice.invoice_date.isoformat() if invoice.invoice_date else None,
+        "invoice_date": invoice.invoice_date.isoformat()
+        if invoice.invoice_date
+        else None,
         "branch": branch_code,
     }
 
@@ -100,6 +104,7 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
         asyncio.run(realtime_manager.broadcast(branch_code, payload))
 
     return {"message": "Invoice created successfully", "invoice_id": str(invoice.id)}
+
 
 @router.post("/rescan")
 def rescan_invoices_folder():
@@ -122,6 +127,7 @@ def rescan_invoices_folder():
 
     return response
 
+
 @router.get("/daily-sales")
 def get_daily_sales(
     days: int = Query(7, ge=1, le=90),
@@ -137,24 +143,25 @@ def get_daily_sales(
         reference_date.replace(hour=0, minute=0, second=0, microsecond=0)
         - timedelta(days=max(days - 1, 0))
     )
-    
     start_date_only = start_date.date()
 
     date_source = func.coalesce(Invoice.invoice_date, Invoice.created_at)
     day_expression = func.date_trunc("day", date_source)
 
-    branch_filters = None
+    branch_filters = []
     summary_branch_filters = []
 
     if normalized_branch.lower() != "all":
         if normalized_branch.upper() == "FLO":
-            branch_filters = [Invoice.branch_id.is_(None)]
+            branch_filters.append(Invoice.branch_id.is_(None))
             summary_branch_filters.append(DailySalesSummary.branch_id.is_(None))
         else:
             try:
                 branch_uuid = uuid.UUID(normalized_branch)
-                branch_filters = [Invoice.branch_id == branch_uuid]
-                summary_branch_filters.append(DailySalesSummary.branch_id == branch_uuid)
+                branch_filters.append(Invoice.branch_id == branch_uuid)
+                summary_branch_filters.append(
+                    DailySalesSummary.branch_id == branch_uuid
+                )
             except (ValueError, AttributeError):
                 branch_match = (
                     db.query(Branch)
@@ -167,7 +174,7 @@ def get_daily_sales(
                         "branch": normalized_branch,
                         "days": days,
                     }
-                branch_filters = [Invoice.branch_id == branch_match.id]
+                branch_filters.append(Invoice.branch_id == branch_match.id)
                 summary_branch_filters.append(
                     DailySalesSummary.branch_id == branch_match.id
                 )
@@ -180,7 +187,7 @@ def get_daily_sales(
 
     summaries = summary_query.all()
 
-    history_map = {}
+    history_map: dict[datetime.date, dict[str, float | int]] = {}
     for summary in summaries:
         entry = history_map.setdefault(
             summary.summary_date,
@@ -240,9 +247,6 @@ def get_daily_sales(
     return {"history": history, "branch": normalized_branch, "days": days}
 
 
-
-
-
 @router.get("/today")
 def get_today_invoices(
     limit: int = Query(700, ge=1, le=2000),
@@ -250,7 +254,7 @@ def get_today_invoices(
     db: Session = Depends(get_db),
 ):
     """Devuelve un resumen y la página solicitada de facturas del día."""
-    
+
     ensure_daily_reset(db)
 
     today = datetime.now().date()
@@ -266,7 +270,6 @@ def get_today_invoices(
             func.count(Invoice.id),
             func.coalesce(func.sum(Invoice.total), 0),
             func.coalesce(func.sum(Invoice.subtotal), 0),
-
         )
         .filter(*filters)
         .one()
@@ -302,17 +305,17 @@ def get_today_invoices(
     )
 
     invoices = []
-    for inv in invoice_rows:
+    for row in invoice_rows:
         invoices.append(
             {
-                "invoice_number": inv.number,
-                "total": float(inv.total or 0),
-                "invoice_number": inv.number,
-                "total": float(inv.total or 0),
-                "items": int(inv.items_count or 0),
-                "timestamp": inv.created_at.isoformat() if inv.created_at else None,
-                "invoice_date": inv.invoice_date.isoformat() if inv.invoice_date else None,
-                "branch": str(inv.branch_id) if inv.branch_id else "FLO",
+                "invoice_number": row.number,
+                "total": float(row.total or 0),
+                "items": int(row.items_count or 0),
+                "timestamp": row.created_at.isoformat() if row.created_at else None,
+                "invoice_date": row.invoice_date.isoformat()
+                if row.invoice_date
+                else None,
+                "branch": str(row.branch_id) if row.branch_id else "FLO",
             }
         )
 
@@ -325,13 +328,13 @@ def get_today_invoices(
         "limit": limit,
         "offset": offset,
     }
-    
-def _resolve_branch_filters(db: Session, branch: str):
+
+
+def _resolve_branch_filters(db: Session, branch: str) -> dict[str, object]:
     normalized_branch = (branch or "all").strip()
 
     if normalized_branch.lower() == "all":
         return {"filters": [], "summary_filters": [], "label": "all"}
-
 
     if normalized_branch.upper() == "FLO":
         return {
@@ -344,18 +347,27 @@ def _resolve_branch_filters(db: Session, branch: str):
         branch_uuid = uuid.UUID(normalized_branch)
         return {
             "filters": [Invoice.branch_id == branch_uuid],
-             "summary_filters": [DailySalesSummary.branch_id == branch_uuid],
+            "summary_filters": [DailySalesSummary.branch_id == branch_uuid],
             "label": str(branch_uuid),
         }
     except (ValueError, AttributeError):
         branch_match = (
             db.query(Branch)
+            .filter(func.lower(Branch.code) == normalized_branch.lower())
+            .first()
+        )
+        if branch_match:
+            return {
+                "filters": [Invoice.branch_id == branch_match.id],
                 "summary_filters": [DailySalesSummary.branch_id == branch_match.id],
                 "label": branch_match.code or str(branch_match.id),
             }
 
-    return {"filters": None, "summary_filters": None, "label": normalized_branch}
-
+    return {
+        "filters": None,
+        "summary_filters": None,
+        "label": normalized_branch,
+    }
 
 
 def _float_or_zero(value):
@@ -369,6 +381,12 @@ def _float_or_zero(value):
 def get_today_forecast(
     branch: str = Query("all"),
     history_days: int = Query(DEFAULT_FORECAST_HISTORY_DAYS, ge=3, le=90),
+    db: Session = Depends(get_db),
+):
+    ensure_daily_reset(db)
+
+    resolution = _resolve_branch_filters(db, branch)
+    branch_filters = resolution["filters"]
     summary_filters = resolution["summary_filters"]
     branch_label = resolution["label"]
 
@@ -396,6 +414,7 @@ def get_today_forecast(
                 "generated_at": datetime.utcnow().isoformat() + "Z",
             },
         }
+
     now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow_start = today_start + timedelta(days=1)
@@ -419,9 +438,7 @@ def get_today_forecast(
 
     yesterday_summary_query = db.query(
         func.coalesce(func.sum(DailySalesSummary.total_sales), 0).label("total_sales"),
-        func.coalesce(func.sum(DailySalesSummary.total_net_sales), 0).label(
-            "net_sales"
-        ),
+        func.coalesce(func.sum(DailySalesSummary.total_net_sales), 0).label("net_sales"),
         func.coalesce(func.sum(DailySalesSummary.total_invoices), 0).label(
             "invoice_count"
         ),
@@ -467,6 +484,12 @@ def get_today_forecast(
             history_subquery.c.day.label("day"),
             func.count().label("invoice_count"),
             func.coalesce(func.sum(history_subquery.c.invoice_total), 0).label(
+                "total_sales"
+            ),
+            func.coalesce(func.sum(first_chunk_case), 0).label("first_chunk_total"),
+        )
+        .group_by(history_subquery.c.day)
+        .order_by(history_subquery.c.day.desc())
         .limit(history_days)
         .all()
     )
@@ -477,7 +500,7 @@ def get_today_forecast(
     first_chunk_accumulator = 0.0
 
     for row in history_rows:
-        day = row.day.date() if hasattr(row.day, "date") else row.day
+        day_value = row.day.date() if hasattr(row.day, "date") else row.day
         total_sales = _float_or_zero(row.total_sales)
         first_chunk_total = _float_or_zero(row.first_chunk_total)
         invoice_count = int(row.invoice_count or 0)
@@ -489,7 +512,9 @@ def get_today_forecast(
 
         history_entries.append(
             {
-                "date": day.isoformat() if hasattr(day, "isoformat") else str(day),
+                "date": day_value.isoformat()
+                if hasattr(day_value, "isoformat")
+                else str(day_value),
                 "total": total_sales,
                 "first_chunk_total": first_chunk_total,
                 "invoice_count": invoice_count,
@@ -499,6 +524,8 @@ def get_today_forecast(
 
         total_accumulator += total_sales
         first_chunk_accumulator += first_chunk_total
+
+    history_entries.sort(key=lambda entry: entry["date"])
 
     weighted_ratio_sum = sum(ratio * weight for ratio, weight in ratio_samples)
     weight_total = sum(weight for _, weight in ratio_samples)
@@ -538,8 +565,6 @@ def get_today_forecast(
     current_invoice_count = int(today_totals_row.invoice_count or 0)
 
     forecast_method = "historical_average"
-    forecast_total = 0.0
-
     if first_chunk_total_today > 0 and ratio_samples:
         forecast_total = first_chunk_total_today * average_ratio
         forecast_method = "first_chunk_ratio"
@@ -613,15 +638,18 @@ def get_invoice_items(invoice_number: str, db: Session = Depends(get_db)):
                     "product_code": item.product_code,
                     "description": item.description,
                     "quantity": float(item.quantity) if item.quantity is not None else 0,
-                    "unit_price": float(item.unit_price) if item.unit_price is not None else 0,
+                    "unit_price": float(item.unit_price)
+                    if item.unit_price is not None
+                    else 0,
                     "subtotal": float(item.subtotal) if item.subtotal is not None else 0,
-                    "unit": item.unit if hasattr(item, "unit") else "",
+                    "unit": getattr(item, "unit", ""),
                 }
                 for item in invoice.items
-            ]
+            ],
         }
 
-    except Exception as e:
+    except Exception as exc:  # pragma: no cover - defensive path
         import traceback
+
         traceback.print_exc()
-        return {"error": f"Excepción interna: {type(e).__name__}: {e}"}
+        return {"error": f"Excepción interna: {type(exc).__name__}: {exc}"}
