@@ -1,6 +1,3 @@
-nd / src / components / realtime / InvoiceDetails.jsx;
-Nuevo + 131 - 0;
-
 import React from "react";
 import {
   Card,
