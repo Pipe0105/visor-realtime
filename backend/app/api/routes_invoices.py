@@ -685,6 +685,15 @@ def get_today_forecast(
     current_net_total = _float_or_zero(today_totals_row.current_net_total)
     current_invoice_count = int(today_totals_row.invoice_count or 0)
     
+    if history_entries:
+        historical_average_total = total_accumulator / len(history_entries)
+        historical_average_first_chunk = (
+            first_chunk_accumulator / len(history_entries)
+        )
+    else:
+        historical_average_total = current_total
+        historical_average_first_chunk = first_chunk_total_today
+    
     regression_coefficients = _linear_regression_coefficients(regression_samples)
     regression_prediction = None
     if (
@@ -697,6 +706,28 @@ def get_today_forecast(
             + coef_first_chunk * first_chunk_total_today
             + coef_previous_total * previous_total
         )
+        
+    history_totals = [
+        entry["total"]
+        for entry in history_entries
+        if isinstance(entry.get("total"), (int, float))
+    ]
+    trend_forecast = None
+    if len(history_totals) >= 2:
+        x_values = list(range(len(history_totals)))
+        mean_x = sum(x_values) / len(x_values)
+        mean_y = sum(history_totals) / len(history_totals)
+        numerator = sum(
+            (x - mean_x) * (y - mean_y)
+            for x, y in zip(x_values, history_totals)
+        )
+        denominator = sum((x - mean_x) ** 2 for x in x_values)
+        if denominator > 0:
+            slope = numerator / denominator
+            intercept = mean_y - slope * mean_x
+            trend_forecast = intercept + slope * len(history_totals)
+            if trend_forecast is not None and trend_forecast < 0:
+                trend_forecast = 0.0
 
     forecast_total = current_total
     forecast_method = "current_total_only"
@@ -719,32 +750,47 @@ def get_today_forecast(
         forecast_ratio = previous_total / yesterday_first_chunk_total
         forecast_total = first_chunk_total_today * forecast_ratio
         forecast_method = "previous_day_first_chunk_ratio"
-    elif first_chunk_total_today > 0 and ratio_samples: 
+    elif first_chunk_total_today > 0 and ratio_samples:
         forecast_total = first_chunk_total_today * average_ratio
         forecast_method = "first_chunk_ratio"
-    elif total_accumulator > 0 and history_entries:
-        forecast_total = total_accumulator / len(history_entries)
-        forecast_method = "historical_average"
+    else:
+        blended_candidates = []
+        if trend_forecast is not None:
+            blended_candidates.append((trend_forecast, 0.45))
+        if total_accumulator > 0 and history_entries:
+            blended_candidates.append((historical_average_total, 0.25))
+        if previous_total > 0:
+            weight = 0.3 if trend_forecast is not None else 0.5
+            blended_candidates.append((previous_total, weight))
+
+        if blended_candidates:
+            weight_sum = sum(weight for _, weight in blended_candidates)
+            if weight_sum > 0:
+                blended_total = sum(
+                    value * weight for value, weight in blended_candidates
+                ) / weight_sum
+                forecast_total = max(blended_total, current_total)
+                forecast_method = "blended_historical_estimate"
+                if first_chunk_total_today > 0:
+                    forecast_ratio = forecast_total / first_chunk_total_today
+                elif historical_average_first_chunk > 0:
+                    forecast_ratio = forecast_total / historical_average_first_chunk
+                else:
+                    forecast_ratio = average_ratio
+        elif total_accumulator > 0 and history_entries:
+            forecast_total = total_accumulator / len(history_entries)
+            forecast_method = "historical_average"
 
     if (
         previous_total > 0
         and forecast_total < previous_total
-        and first_chunk_total_today == 0
+        and forecast_method == "current_total_only"
     ):
         forecast_total = previous_total
         forecast_method = "previous_total_only"
         forecast_ratio = 1.0
 
     remaining_total = max(forecast_total - current_total, 0)
-
-    average_daily_total = (
-        total_accumulator / len(history_entries) if history_entries else current_total
-    )
-    average_first_chunk_total = (
-        first_chunk_accumulator / len(history_entries)
-        if history_entries
-        else first_chunk_total_today
-    )
 
     return {
         "branch": branch_label,
@@ -766,8 +812,8 @@ def get_today_forecast(
             "ratio": forecast_ratio,
             "history_days": len(history_entries),
             "history_samples": len(ratio_samples),
-            "history_average_total": average_daily_total,
-            "history_average_first_chunk": average_first_chunk_total,
+            "history_average_total": historical_average_total,
+            "history_average_first_chunk": historical_average_first_chunk,
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "previous_total": previous_total,
             "previous_net_total": previous_net_total,

@@ -9,11 +9,12 @@ import {
 import { formatCurrency as formatCurrencyDefault } from "../../lib/invoiceUtils";
 
 const METHOD_LABELS = {
-  previous_day_first_chunk_ratio: "ajuste con el dia anterior"
+  previous_day_first_chunk_ratio: "ajuste con el dia anterior",
   first_chunk_ratio: "Ritmo de las primeras facturas",
   historical_average: "Promedio histórico",
   current_total_only: "Total actual",
-  previous_total_only: "Total del dia anterior"
+  previous_total_only: "Total del dia anterior",
+  blended_historical_estimate: "Estimación combinada",
   no_branch_match: "Sucursal no encontrada",
 };
 
