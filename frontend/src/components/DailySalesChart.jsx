@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Box } from "@mui/material";
+import { Box, Typography } from "@mui/material";
+import { ChartsTooltipPaper } from "@mui/x-charts/ChartsTooltip/ChartsTooltipTable";
 import { LineChart } from "@mui/x-charts/LineChart";
 import {
   Card,
@@ -17,6 +18,14 @@ const currencyFormatter = new Intl.NumberFormat("es-CO", {
   currency: "COP",
   minimumFractionDigits: 0,
   maximumFractionDigits: 0,
+});
+
+const axisCurrencyFormatter = new Intl.NumberFormat("es-CO", {
+  style: "currency",
+  currency: "COP",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+  notation: "compact",
 });
 
 function toTimestamp(dateString) {
@@ -39,6 +48,106 @@ function getDayLabel(value) {
     day: "numeric",
     month: "short",
   });
+}
+
+function formatSignedCurrency(value, formatter) {
+  const numeric = Number(value) || 0;
+  const formatted = formatter(Math.abs(numeric));
+  if (numeric === 0) {
+    return `${formatted}`;
+  }
+  const prefix = numeric > 0 ? "+" : "−";
+  return `${prefix}${formatted}`;
+}
+
+function DailySalesTooltipContent(props) {
+  const {
+    axisValue,
+    dataIndex,
+    dataset = [],
+    classes,
+    sx,
+    formatCurrency,
+  } = props;
+
+  if (dataIndex == null && axisValue == null) {
+    return null;
+  }
+
+  const axisTimestamp =
+    axisValue instanceof Date ? axisValue.getTime() : Number(axisValue);
+
+  const point =
+    dataset[dataIndex ?? -1] ??
+    dataset.find((item) => Number(item?.timestamp) === axisTimestamp);
+
+  if (!point) {
+    return null;
+  }
+
+  const currentIndex = dataset.indexOf(point);
+  const previousPoint =
+    currentIndex > 0 ? dataset[currentIndex - 1] : undefined;
+
+  const currencyFormatterFn =
+    typeof formatCurrency === "function"
+      ? formatCurrency
+      : (value) => currencyFormatter.format(Math.max(Number(value) || 0, 0));
+
+  const totalLabel = currencyFormatterFn(point.total);
+  const cumulativeLabel = currencyFormatterFn(point.cumulative);
+  const delta = Number(point.total) - Number(previousPoint?.total || 0);
+  const deltaLabel = formatSignedCurrency(delta, currencyFormatterFn);
+
+  const detailDate = new Date(point.timestamp);
+  const fullLabel = Number.isNaN(detailDate.getTime())
+    ? point.label
+    : detailDate.toLocaleDateString("es-CO", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+      });
+
+  const isPositive = delta >= 0;
+
+  return (
+    <ChartsTooltipPaper sx={sx} className={classes.paper}>
+      <Box sx={{ px: 2, py: 1.5, maxWidth: 280 }}>
+        <Typography
+          variant="subtitle2"
+          sx={{
+            fontWeight: 600,
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+          }}
+        >
+          {fullLabel}
+        </Typography>
+        <Typography
+          variant="body2"
+          sx={{ mt: 1, fontWeight: 600, letterSpacing: "0.01em" }}
+        >
+          Ventas del día: {totalLabel}
+        </Typography>
+        <Typography variant="caption" sx={{ display: "block", mt: 0.25 }}>
+          Acumulado del período: {cumulativeLabel}
+        </Typography>
+        {previousPoint ? (
+          <Typography
+            variant="caption"
+            sx={{
+              display: "block",
+              mt: 0.5,
+              fontWeight: 600,
+              color: isPositive ? "#16a34a" : "#dc2626",
+            }}
+          >
+            Variación vs. día anterior: {deltaLabel}
+          </Typography>
+        ) : null}
+      </Box>
+    </ChartsTooltipPaper>
+  );
 }
 
 export default function DailySalesChart({ data }) {
@@ -124,8 +233,11 @@ export default function DailySalesChart({ data }) {
               ]}
               yAxis={[
                 {
+                  label: "",
                   valueFormatter: (value) =>
-                    currencyFormatter.format(Math.max(Number(value) || 0, 0)),
+                    axisCurrencyFormatter.format(
+                      Math.max(Number(value) || 0, 0)
+                    ),
                 },
               ]}
               series={[
@@ -136,8 +248,10 @@ export default function DailySalesChart({ data }) {
                   curve: "monotoneX",
                   area: true,
                   color: "#22c55e",
+                  showMark: dataset.length <= 30,
                   valueFormatter: (value) =>
                     currencyFormatter.format(Number(value) || 0),
+                  areaOpacity: 0.16,
                 },
                 {
                   id: "cumulative-total",
@@ -145,6 +259,7 @@ export default function DailySalesChart({ data }) {
                   label: "Ventas acumuladas",
                   curve: "catmullRom",
                   color: "#0ea5e9",
+                  showMark: dataset.length <= 30,
                   valueFormatter: (value) =>
                     currencyFormatter.format(Number(value) || 0),
                 },
@@ -159,6 +274,21 @@ export default function DailySalesChart({ data }) {
                   position: { vertical: "top", horizontal: "center" },
                   padding: { top: 8 },
                 },
+                tooltip: {
+                  trigger: "axis",
+                  slots: {
+                    axisContent: DailySalesTooltipContent,
+                  },
+                  slotProps: {
+                    axisContent: {
+                      dataset,
+                      formatCurrency: (value) =>
+                        currencyFormatter.format(
+                          Math.max(Number(value) || 0, 0)
+                        ),
+                    },
+                  },
+                },
               }}
               sx={{
                 [`.MuiLineElement-root`]: {
@@ -166,6 +296,13 @@ export default function DailySalesChart({ data }) {
                 },
                 [`.MuiAreaElement-root`]: {
                   fillOpacity: 0.2,
+                },
+                [`.MuiChartsAxis-left .MuiChartsAxis-label`]: {
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  fill: "#475569",
                 },
                 [`.MuiChartsAxis-tickLabel`]: {
                   fontSize: 12,
