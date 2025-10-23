@@ -1,0 +1,919 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { apiFetch, buildWebSocketUrl } from "../services/api";
+import {
+  getInvoiceDay,
+  getInvoiceIdentifier,
+  normalizeInvoice,
+  normalizeTimestamp,
+  parseInvoiceTimestamp,
+  toNumber,
+} from "../lib/invoiceUtils";
+
+const PAGE_SIZE = 100;
+
+export function useRealtimeInvoices() {
+  const [status, setStatus] = useState("Desconectado 🔴");
+  const [messages, setMessages] = useState([]);
+  const [selectedInvoices, setSelectedInvoices] = useState(null);
+  const [invoiceItems, setInvoicesItems] = useState([]);
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [dailySummary, setDailySummary] = useState({
+    totalSales: 0,
+    totalNetSales: 0,
+    totalInvoices: 0,
+    averageTicket: 0,
+  });
+  const [filters, setFilters] = useState({
+    query: "",
+    branch: "all",
+    minTotal: "",
+    maxTotal: "",
+    minItems: "",
+    maxItems: "",
+  });
+  const [areFiltersOpen, setAreFiltersOpen] = useState(false);
+  const [dailySalesHistory, setDailySalesHistory] = useState([]);
+  const [activePanel, setActivePanel] = useState("facturas");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const knownInvoicesRef = useRef(new Set());
+  const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const autoRefreshTimerRef = useRef(null);
+  const shouldReconnectRef = useRef(true);
+  const intentionalCloseRef = useRef(false);
+  const pendingManualReconnectRef = useRef(false);
+
+  const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const loadInvoices = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/invoices/today`);
+
+      const data = await res.json();
+
+      if (Array.isArray(data)) {
+        const normalizedInvoices = data.map(normalizeInvoice);
+        setMessages(normalizedInvoices);
+        knownInvoicesRef.current = new Set(
+          normalizedInvoices
+            .map((invoice) => getInvoiceIdentifier(invoice))
+            .filter(Boolean)
+        );
+        const total = normalizedInvoices.reduce(
+          (sum, f) => sum + toNumber(f.total),
+          0
+        );
+        const totalNet = normalizedInvoices.reduce(
+          (sum, f) => sum + toNumber(f.subtotal ?? f.total),
+          0
+        );
+        const count = normalizedInvoices.length;
+        setDailySummary({
+          totalSales: total,
+          totalNetSales: totalNet,
+          totalInvoices: count,
+          averageTicket: count ? total / count : 0,
+        });
+        return normalizedInvoices;
+      }
+
+      const normalizedInvoices = Array.isArray(data.invoices)
+        ? data.invoices.map(normalizeInvoice)
+        : [];
+
+      setMessages(normalizedInvoices);
+      knownInvoicesRef.current = new Set(
+        normalizedInvoices
+          .map((invoice) => getInvoiceIdentifier(invoice))
+          .filter(Boolean)
+      );
+      const totalSales = toNumber(data.total_sales);
+      const totalNetSales = toNumber(
+        data.total_net_sales ?? data.total_without_taxes ?? data.total_sales
+      );
+      const totalInvoices = Math.trunc(toNumber(data.total_invoices));
+      const averageTicket = toNumber(
+        data.average_ticket ?? (totalInvoices ? totalSales / totalInvoices : 0)
+      );
+      setDailySummary({
+        totalSales,
+        totalNetSales,
+        totalInvoices,
+        averageTicket,
+      });
+      return normalizedInvoices;
+    } catch (err) {
+      console.error("Error cargando facturas", err);
+      setMessages([]);
+      knownInvoicesRef.current = new Set();
+      setDailySummary({
+        totalSales: 0,
+        totalNetSales: 0,
+        totalInvoices: 0,
+        averageTicket: 0,
+      });
+      throw err;
+    }
+  }, []);
+
+  useEffect(() => {
+    loadInvoices().catch(() => {});
+  }, [loadInvoices]);
+
+  const loadDailySalesHistory = useCallback(
+    async (branchValue) => {
+      const params = new URLSearchParams();
+      params.set("days", "10");
+      const targetBranch =
+        branchValue ??
+        (filters.branch && filters.branch !== "" ? filters.branch : "all");
+
+      if (targetBranch && targetBranch !== "all") {
+        params.set("branch", targetBranch);
+      }
+
+      const response = await apiFetch(
+        `/invoices/daily-sales?${params.toString()}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+
+      if (Array.isArray(payload)) {
+        return payload;
+      }
+
+      if (Array.isArray(payload?.history)) {
+        return payload.history;
+      }
+
+      return [];
+    },
+    [filters.branch]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadDailySalesHistory()
+      .then((history) => {
+        if (!cancelled) {
+          setDailySalesHistory(history);
+        }
+      })
+      .catch((error) => {
+        console.error("Error cargando historial de ventas", error);
+        if (!cancelled) {
+          setDailySalesHistory([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadDailySalesHistory]);
+
+  const connectWebSocket = useCallback(() => {
+    if (typeof window === "undefined" || !shouldReconnectRef.current) {
+      return;
+    }
+
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
+    setStatus("Conectando 🟡");
+
+    const socket = new WebSocket(buildWebSocketUrl("/ws/FLO"));
+    wsRef.current = socket;
+
+    socket.onopen = () => {
+      pendingManualReconnectRef.current = false;
+      intentionalCloseRef.current = false;
+      setStatus("Conectado 🟢");
+      console.log("✅ WebSocket conectado");
+    };
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log("📩 Mensaje recibido:", data);
+
+      const today = new Date().toISOString().slice(0, 10);
+      const nextMessageDay = (value) => getInvoiceDay(value);
+
+      const messageDay =
+        nextMessageDay(data.invoice_date) ||
+        nextMessageDay(data.timestamp) ||
+        nextMessageDay(data.created_at) ||
+        today;
+
+      setMessages((prev) => {
+        const previousDay = prev[0]
+          ? nextMessageDay(prev[0].invoice_date) ||
+            nextMessageDay(prev[0].timestamp) ||
+            nextMessageDay(prev[0].created_at) ||
+            today
+          : today;
+        const isNewDay = prev.length > 0 && messageDay !== previousDay;
+
+        const invoiceTotal = toNumber(data.total);
+        const invoiceSubtotal = toNumber(
+          data.subtotal != null ? data.subtotal : data.total
+        );
+
+        const normalized = normalizeInvoice(data);
+        const normalizedId = getInvoiceIdentifier(normalized);
+
+        const knownInvoices = knownInvoicesRef.current;
+        const hasKnownIdentifier =
+          normalizedId != null && knownInvoices.has(normalizedId);
+        const normalizedTimestampForMatch = normalizeTimestamp(
+          normalized.timestamp ??
+            normalized.invoice_date ??
+            normalized.created_at ??
+            null
+        );
+        const matchesExistingInvoice = (item) => {
+          if (normalizedId != null) {
+            return getInvoiceIdentifier(item) === normalizedId;
+          }
+
+          const itemTimestampForMatch = normalizeTimestamp(
+            item.timestamp ?? item.invoice_date ?? item.created_at ?? null
+          );
+
+          return (
+            item.invoice_number === normalized.invoice_number &&
+            itemTimestampForMatch === normalizedTimestampForMatch
+          );
+        };
+
+        const hasExistingInvoice =
+          hasKnownIdentifier || prev.some(matchesExistingInvoice);
+
+        setDailySummary((prevSummary) => {
+          if (isNewDay) {
+            console.log("Nuevo dia detectado - reiniciando resumen diario");
+            return {
+              totalSales: invoiceTotal,
+              totalNetSales: invoiceSubtotal,
+              totalInvoices: 1,
+              averageTicket: invoiceTotal,
+            };
+          }
+
+          if (hasExistingInvoice) {
+            return prevSummary;
+          }
+
+          const baseSales = prevSummary?.totalSales || 0;
+          const baseInvoices = prevSummary?.totalInvoices || 0;
+          const baseNetSales = prevSummary?.totalNetSales || 0;
+          const totalSales = baseSales + invoiceTotal;
+          const totalNetSales = baseNetSales + invoiceSubtotal;
+          const totalInvoices = baseInvoices + 1;
+
+          return {
+            totalSales,
+            totalNetSales,
+            totalInvoices,
+            averageTicket: totalInvoices ? totalSales / totalInvoices : 0,
+          };
+        });
+
+        if (isNewDay) {
+          knownInvoicesRef.current = new Set(
+            normalizedId != null ? [normalizedId] : []
+          );
+          return [normalized];
+        }
+
+        if (hasExistingInvoice) {
+          if (normalizedId != null && !knownInvoices.has(normalizedId)) {
+            knownInvoices.add(normalizedId);
+          }
+          return prev.map((item) =>
+            matchesExistingInvoice(item)
+              ? normalizeInvoice({ ...item, ...normalized })
+              : item
+          );
+        }
+
+        if (normalizedId != null) {
+          knownInvoices.add(normalizedId);
+        }
+
+        return [normalized, ...prev];
+      });
+    };
+
+    socket.onerror = (event) => {
+      console.error("⚠️ Error en WebSocket", event);
+    };
+
+    socket.onclose = () => {
+      wsRef.current = null;
+      console.log("⚠️ WebSocket cerrado");
+
+      if (intentionalCloseRef.current) {
+        intentionalCloseRef.current = false;
+        if (pendingManualReconnectRef.current && shouldReconnectRef.current) {
+          pendingManualReconnectRef.current = false;
+          connectWebSocket();
+        } else if (!shouldReconnectRef.current) {
+          setStatus("Desconectado 🔴");
+        }
+        return;
+      }
+
+      if (!shouldReconnectRef.current) {
+        setStatus("Desconectado 🔴");
+        return;
+      }
+
+      setStatus("Reconectando ♻️");
+      reconnectTimerRef.current = window.setTimeout(() => {
+        connectWebSocket();
+      }, 4000);
+    };
+  }, []);
+
+  const forceReconnect = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setStatus("Reconectando ♻️");
+
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
+    const currentSocket = wsRef.current;
+    if (currentSocket) {
+      pendingManualReconnectRef.current = true;
+      intentionalCloseRef.current = true;
+      try {
+        currentSocket.close();
+      } catch (error) {
+        console.error("Error cerrando WebSocket para reconectar", error);
+        pendingManualReconnectRef.current = false;
+        intentionalCloseRef.current = false;
+        connectWebSocket();
+      }
+      return;
+    }
+
+    pendingManualReconnectRef.current = false;
+    intentionalCloseRef.current = false;
+    connectWebSocket();
+  }, [connectWebSocket]);
+
+  const handleManualRefresh = useCallback(async () => {
+    if (isRefreshing) {
+      return;
+    }
+
+    setIsRefreshing(true);
+
+    try {
+      forceReconnect();
+
+      try {
+        const response = await apiFetch(`/invoices/rescan`, { method: "POST" });
+        if (response.ok) {
+          await response.json().catch(() => null);
+        }
+      } catch (error) {
+        console.error("Error solicitando re-escaneo de facturas", error);
+      }
+
+      await loadInvoices().catch(() => {});
+
+      try {
+        const history = await loadDailySalesHistory(filters.branch);
+        setDailySalesHistory(history);
+      } catch (error) {
+        console.error(
+          "Error actualizando historial durante el refresco",
+          error
+        );
+        setDailySalesHistory([]);
+      }
+    } catch (error) {
+      console.error("Error general durante el refresco manual", error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [
+    filters.branch,
+    forceReconnect,
+    isRefreshing,
+    loadDailySalesHistory,
+    loadInvoices,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const MIN_INTERVAL_MS = 15_000;
+    const MAX_INTERVAL_MS = 30_000;
+
+    const scheduleNextRefresh = () => {
+      const delay =
+        MIN_INTERVAL_MS + Math.random() * (MAX_INTERVAL_MS - MIN_INTERVAL_MS);
+
+      autoRefreshTimerRef.current = window.setTimeout(async () => {
+        autoRefreshTimerRef.current = null;
+
+        try {
+          await handleManualRefresh();
+        } finally {
+          scheduleNextRefresh();
+        }
+      }, delay);
+    };
+
+    scheduleNextRefresh();
+
+    return () => {
+      if (autoRefreshTimerRef.current) {
+        clearTimeout(autoRefreshTimerRef.current);
+        autoRefreshTimerRef.current = null;
+      }
+    };
+  }, [handleManualRefresh]);
+
+  useEffect(() => {
+    shouldReconnectRef.current = true;
+    connectWebSocket();
+
+    return () => {
+      shouldReconnectRef.current = false;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (wsRef.current) {
+        intentionalCloseRef.current = true;
+        try {
+          wsRef.current.close();
+        } catch (error) {
+          console.error("Error cerrando WebSocket en limpieza", error);
+        }
+      }
+      pendingManualReconnectRef.current = false;
+    };
+  }, [connectWebSocket]);
+
+  const handleInvoiceClick = useCallback(
+    async (invoice_number) => {
+      if (selectedInvoices === invoice_number) {
+        setSelectedInvoices(null);
+        setInvoicesItems([]);
+        return;
+      }
+
+      setInvoicesItems([]);
+      setLoadingItems(true);
+      setSelectedInvoices(invoice_number);
+      try {
+        const res = await apiFetch(`/invoices/${invoice_number}/items`);
+        const data = await res.json();
+        if (data.items) {
+          setInvoicesItems(data.items);
+        } else {
+          setInvoicesItems([]);
+        }
+      } catch (err) {
+        console.error("error cargando items", err);
+        setInvoicesItems([]);
+      } finally {
+        setLoadingItems(false);
+      }
+    },
+    [selectedInvoices]
+  );
+
+  const summary = useMemo(
+    () => ({
+      total: dailySummary.totalSales,
+      netTotal: dailySummary.totalNetSales,
+      count: dailySummary.totalInvoices,
+      avg: dailySummary.averageTicket,
+    }),
+    [dailySummary]
+  );
+
+  const billingSeries = useMemo(() => {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return {
+        series: [],
+        average: 0,
+      };
+    }
+
+    const timeFormatter = new Intl.DateTimeFormat("es-CO", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const tooltipFormatter = new Intl.DateTimeFormat("es-CO", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+
+    const entries = messages
+      .map((msg) => {
+        const rawTimestamp =
+          msg.invoice_date ?? msg.timestamp ?? msg.created_at ?? null;
+        const parsed = parseInvoiceTimestamp(rawTimestamp);
+        if (!parsed) {
+          return null;
+        }
+
+        return {
+          invoiceNumber: msg.invoice_number,
+          timestamp: parsed.getTime(),
+          iso: parsed.toISOString(),
+          total: toNumber(msg.total),
+          branch: msg.branch || "FLO",
+          tooltipLabel: tooltipFormatter.format(parsed),
+          timeLabel: timeFormatter.format(parsed),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (entries.length === 0) {
+      return {
+        series: [],
+        average: 0,
+      };
+    }
+
+    const average =
+      entries.reduce((sum, item) => sum + toNumber(item.total), 0) /
+      entries.length;
+
+    const series = entries.map((entry) => ({
+      ...entry,
+      deviation: toNumber(entry.total) - average,
+      id: `${entry.invoiceNumber ?? "invoice"}-${entry.iso}`,
+    }));
+
+    return {
+      series,
+      average,
+    };
+  }, [messages]);
+
+  const latestBillingPoint =
+    billingSeries.series.length > 0
+      ? billingSeries.series[billingSeries.series.length - 1]
+      : null;
+
+  const selectedInvoiceData = selectedInvoices
+    ? messages.find((msg) => msg.invoice_number === selectedInvoices)
+    : null;
+  const hasSelectedInvoiceTotal =
+    selectedInvoiceData && selectedInvoiceData.total != null;
+  const detailItemsCount =
+    invoiceItems.length > 0
+      ? invoiceItems.length
+      : selectedInvoiceData?.items ?? 0;
+  const detailSubtotal =
+    invoiceItems.length > 0
+      ? invoiceItems.reduce((sum, item) => sum + toNumber(item.subtotal), 0)
+      : toNumber(selectedInvoiceData?.subtotal);
+  const detailComputedTotal = hasSelectedInvoiceTotal
+    ? toNumber(selectedInvoiceData.total)
+    : detailSubtotal;
+  const selectedInvoiceDateValue = selectedInvoiceData
+    ? parseInvoiceTimestamp(
+        selectedInvoiceData.invoice_date ??
+          selectedInvoiceData.timestamp ??
+          selectedInvoiceData.created_at ??
+          null
+      )
+    : null;
+  const selectedInvoiceDate = selectedInvoiceDateValue
+    ? selectedInvoiceDateValue.toLocaleString("es-CO", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
+  const selectedInvoiceMeta = selectedInvoiceData
+    ? [
+        selectedInvoiceDate ? `Emitida ${selectedInvoiceDate}` : null,
+        `${detailItemsCount} ${detailItemsCount === 1 ? "ítem" : "ítems"}`,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+
+  const availableBranches = useMemo(() => {
+    const branchSet = new Set();
+    messages.forEach((msg) => {
+      branchSet.add(msg.branch || "FLO");
+    });
+    return Array.from(branchSet).sort((a, b) => a.localeCompare(b));
+  }, [messages]);
+
+  const totalsRange = useMemo(() => {
+    if (messages.length === 0) {
+      return { min: 0, max: 0 };
+    }
+    return messages.reduce(
+      (acc, msg) => {
+        const value = toNumber(msg.total);
+        return {
+          min: Math.min(acc.min, value),
+          max: Math.max(acc.max, value),
+        };
+      },
+      { min: Number.POSITIVE_INFINITY, max: 0 }
+    );
+  }, [messages]);
+
+  const itemsRange = useMemo(() => {
+    if (messages.length === 0) {
+      return { min: 0, max: 0 };
+    }
+    return messages.reduce(
+      (acc, msg) => {
+        const value = toNumber(msg.items);
+        return {
+          min: Math.min(acc.min, value),
+          max: Math.max(acc.max, value),
+        };
+      },
+      { min: Number.POSITIVE_INFINITY, max: 0 }
+    );
+  }, [messages]);
+
+  const filteredMessages = useMemo(() => {
+    if (messages.length === 0) {
+      return [];
+    }
+
+    const normalizedQuery = filters.query.trim().toLowerCase();
+    const minTotal =
+      filters.minTotal !== "" ? toNumber(filters.minTotal) : null;
+    const maxTotal =
+      filters.maxTotal !== "" ? toNumber(filters.maxTotal) : null;
+    const minItems =
+      filters.minItems !== "" ? toNumber(filters.minItems) : null;
+    const maxItems =
+      filters.maxItems !== "" ? toNumber(filters.maxItems) : null;
+
+    return messages.filter((msg) => {
+      const matchesQuery = normalizedQuery
+        ? `${msg.invoice_number}`.toLowerCase().includes(normalizedQuery)
+        : true;
+      const matchesBranch =
+        filters.branch === "all" || (msg.branch || "FLO") === filters.branch;
+
+      const totalValue = toNumber(msg.total);
+      const itemsValue = toNumber(msg.items);
+
+      const matchesMinTotal = minTotal === null || totalValue >= minTotal;
+      const matchesMaxTotal = maxTotal === null || totalValue <= maxTotal;
+      const matchesMinItems = minItems === null || itemsValue >= minItems;
+      const matchesMaxItems = maxItems === null || itemsValue <= maxItems;
+
+      return (
+        matchesQuery &&
+        matchesBranch &&
+        matchesMinTotal &&
+        matchesMaxTotal &&
+        matchesMinItems &&
+        matchesMaxItems
+      );
+    });
+  }, [filters, messages]);
+
+  const totalFilteredInvoices = filteredMessages.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredInvoices / PAGE_SIZE));
+
+  const paginatedMessages = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredMessages.slice(start, start + PAGE_SIZE);
+  }, [currentPage, filteredMessages]);
+
+  const pageRangeStart =
+    totalFilteredInvoices === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const pageRangeEnd =
+    totalFilteredInvoices === 0
+      ? 0
+      : Math.min(
+          pageRangeStart + paginatedMessages.length - 1,
+          totalFilteredInvoices
+        );
+
+  const paginationRange = useMemo(
+    () => Array.from({ length: totalPages }, (_, index) => index + 1),
+    [totalPages]
+  );
+
+  useEffect(() => {
+    setCurrentPage((prev) => {
+      if (prev < 1) {
+        return 1;
+      }
+      return Math.min(prev, totalPages);
+    });
+  }, [totalPages]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filters.query.trim()) count += 1;
+    if (filters.branch !== "all") count += 1;
+    if (filters.minTotal !== "" || filters.maxTotal !== "") count += 1;
+    if (filters.minItems !== "" || filters.maxItems !== "") count += 1;
+    return count;
+  }, [filters]);
+
+  const dailySalesSeries = useMemo(() => {
+    const liveTotalsByDay = new Map();
+
+    if (messages.length > 0) {
+      messages.forEach((msg) => {
+        const branchKey = msg.branch || "FLO";
+        if (filters.branch !== "all" && branchKey !== filters.branch) {
+          return;
+        }
+
+        const baseDate =
+          (msg.invoice_date && msg.invoice_date.slice(0, 10)) ||
+          (msg.timestamp && msg.timestamp.slice(0, 10)) ||
+          (msg.created_at && msg.created_at.slice(0, 10)) ||
+          todayKey;
+        const totalValue = toNumber(msg.total);
+        liveTotalsByDay.set(
+          baseDate,
+          (liveTotalsByDay.get(baseDate) || 0) + totalValue
+        );
+      });
+    }
+
+    const historyTotals = new Map();
+    dailySalesHistory.forEach((entry) => {
+      if (!entry || !entry.date) {
+        return;
+      }
+      historyTotals.set(entry.date, toNumber(entry.total));
+    });
+
+    const allDates = new Set([
+      ...historyTotals.keys(),
+      ...liveTotalsByDay.keys(),
+    ]);
+
+    if (allDates.size === 0) {
+      if (filters.branch === "all" && dailySummary.totalSales > 0) {
+        const fallbackTotal = toNumber(dailySummary.totalSales);
+        return [
+          {
+            date: todayKey,
+            total: fallbackTotal,
+            cumulative: fallbackTotal,
+          },
+        ];
+      }
+      return [];
+    }
+
+    const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
+
+    let cumulative = 0;
+    return sortedDates.map((date) => {
+      const baseTotal = historyTotals.get(date) || 0;
+      const liveTotal = liveTotalsByDay.has(date)
+        ? liveTotalsByDay.get(date)
+        : null;
+      const total = liveTotal != null ? liveTotal : baseTotal;
+      cumulative += total;
+      return {
+        date,
+        total,
+        cumulative,
+      };
+    });
+  }, [
+    dailySalesHistory,
+    dailySummary.totalSales,
+    filters.branch,
+    messages,
+    todayKey,
+  ]);
+
+  const invoicesCountLabel = (() => {
+    if (messages.length === 0) {
+      return "Sin facturas registradas";
+    }
+    if (activeFiltersCount > 0) {
+      return `${filteredMessages.length} de ${messages.length} ${
+        messages.length === 1 ? "factura" : "facturas"
+      }`;
+    }
+    return `${messages.length} ${
+      messages.length === 1 ? "factura" : "facturas"
+    } hoy`;
+  })();
+
+  const handleFilterChange = useCallback(
+    (field) => (event) => {
+      const value = event.target.value;
+      setCurrentPage(1);
+      setFilters((prev) => ({
+        ...prev,
+        [field]: value,
+      }));
+    },
+    []
+  );
+
+  const handleResetFilters = useCallback(() => {
+    setCurrentPage(1);
+    setFilters({
+      query: "",
+      branch: "all",
+      minTotal: "",
+      maxTotal: "",
+      minItems: "",
+      maxItems: "",
+    });
+  }, []);
+
+  const handleApplyFilters = useCallback(() => {
+    setAreFiltersOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (
+      filters.branch !== "all" &&
+      availableBranches.length > 0 &&
+      !availableBranches.includes(filters.branch)
+    ) {
+      setFilters((prev) => ({
+        ...prev,
+        branch: "all",
+      }));
+    }
+  }, [availableBranches, filters.branch]);
+
+  useEffect(() => {
+    if (activePanel !== "facturas") {
+      setAreFiltersOpen(false);
+    }
+  }, [activePanel]);
+
+  return {
+    status,
+    messages,
+    summary,
+    billingSeries,
+    latestBillingPoint,
+    dailySalesSeries,
+    isRefreshing,
+    handleManualRefresh,
+    activePanel,
+    setActivePanel,
+    areFiltersOpen,
+    setAreFiltersOpen,
+    filters,
+    handleFilterChange,
+    totalsRange,
+    itemsRange,
+    handleResetFilters,
+    handleApplyFilters,
+    activeFiltersCount,
+    filteredMessages,
+    paginatedMessages,
+    handleInvoiceClick,
+    selectedInvoices,
+    selectedInvoiceData,
+    detailComputedTotal,
+    detailItemsCount,
+    invoiceItems,
+    loadingItems,
+    selectedInvoiceMeta,
+    invoicesCountLabel,
+    pageRangeStart,
+    pageRangeEnd,
+    totalFilteredInvoices,
+    totalPages,
+    paginationRange,
+    currentPage,
+    setCurrentPage,
+  };
+}
