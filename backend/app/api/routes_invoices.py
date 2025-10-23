@@ -1,22 +1,19 @@
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import case, func, select
-from datetime import datetime, timedelta
+import asyncio
+import uuid
+from datetime import date, datetime, timedelta
 from math import fsum
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import case, func, select
+from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
+from app.models.branch import Branch
+from app.models.daily_summary import DailySalesSummary
 from app.models.invoice import Invoice
 from app.models.invoice_item import InvoiceItem
 from app.schemas.invoice_schema import InvoiceCreate
-import asyncio
-from datetime import datetime, timedelta
-from sqlalchemy.orm import Session, selectinload
-from app.models.branch import Branch
-from app.services.realtime_manager import realtime_manager
-import asyncio
-import uuid
-from app.services.file_reader import trigger_manual_rescan
 from app.services.daily_reset import ensure_daily_reset
-from app.models.daily_summary import DailySalesSummary
+from app.services.file_reader import trigger_manual_rescan
+from app.services.realtime_manager import realtime_manager
 
 router = APIRouter()
 
@@ -561,6 +558,24 @@ def get_today_forecast(
         .limit(history_days)
         .all()
     )
+    
+    def _parse_history_day(value):
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        if value is None:
+            return None
+        try:
+            return datetime.fromisoformat(str(value)).date()
+        except (TypeError, ValueError):
+            return None
+
+    def _format_history_day(value):
+        parsed = _parse_history_day(value)
+        if parsed is not None:
+            return parsed, parsed.isoformat()
+        return None, str(value)
 
     history_data = []
     ratio_samples = []
@@ -569,7 +584,7 @@ def get_today_forecast(
     yesterday_first_chunk_total = 0.0
 
     for row in history_rows:
-        day_value = row.day.date() if hasattr(row.day, "date") else row.day
+        parsed_day, display_day = _format_history_day(row.day)
         total_sales = _float_or_zero(row.total_sales)
         first_chunk_total = _float_or_zero(row.first_chunk_total)
         invoice_count = int(row.invoice_count or 0)
@@ -581,10 +596,8 @@ def get_today_forecast(
 
         history_data.append(
             {
-                "date": day_value.isoformat()
-                if hasattr(day_value, "isoformat")
-                else str(day_value),
-                "date": day_value,
+                "date": parsed_day,
+                "display_date": display_day,
                 "total": total_sales,
                 "first_chunk_total": first_chunk_total,
                 "invoice_count": invoice_count,
@@ -594,19 +607,10 @@ def get_today_forecast(
 
         total_accumulator += total_sales
         first_chunk_accumulator += first_chunk_total
-        
-        if hasattr(day_value, "date"):
-            current_day = day_value.date()
-        else:
-            try:
-                current_day = datetime.fromisoformat(str(day_value)).date()
-            except (TypeError, ValueError, AttributeError):
-                current_day = day_value
-                
-        if current_day == yesterday:
+        if parsed_day is not None and parsed_day == yesterday:
             yesterday_first_chunk_total = first_chunk_total
 
-    history_data.sort(key=lambda entry: entry["date"])
+    history_data.reverse()
 
     history_entries = []
     regression_samples = []
@@ -614,19 +618,16 @@ def get_today_forecast(
 
     for entry in history_data:
         entry_date = entry["date"]
-        if isinstance(entry_date, datetime):
-            date_value = entry_date.date()
-        else:
-            date_value = entry_date
+        previous_total_value = None
 
-        previous_day = date_value - timedelta(days=1)
-        previous_total_value = totals_by_date.get(previous_day)
+        if isinstance(entry_date, date):
+            previous_day = entry_date - timedelta(days=1)
+            previous_total_value = totals_by_date.get(previous_day)
+            totals_by_date[entry_date] = entry["total"]
 
         history_entries.append(
             {
-                "date": entry_date.isoformat()
-                if hasattr(entry_date, "isoformat")
-                else str(entry_date),
+                "date": entry["display_date"],
                 "total": entry["total"],
                 "first_chunk_total": entry["first_chunk_total"],
                 "invoice_count": entry["invoice_count"],
@@ -635,7 +636,10 @@ def get_today_forecast(
             }
         )
 
-        if previous_total_value is not None:
+        if (
+            previous_total_value is not None
+            and isinstance(entry_date, date)
+        ):
             regression_samples.append(
                 (
                     entry["first_chunk_total"],
@@ -643,8 +647,6 @@ def get_today_forecast(
                     entry["total"],
                 )
             )
-
-        totals_by_date[date_value] = entry["total"]
 
     weighted_ratio_sum = sum(ratio * weight for ratio, weight in ratio_samples)
     weight_total = sum(weight for _, weight in ratio_samples)
