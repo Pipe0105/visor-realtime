@@ -30,7 +30,7 @@ function niceCeil(value) {
   if (normalized <= 0.2) nice = 0.2;
   else if (normalized <= 1) nice = 1;
   else if (normalized <= 2) nice = 2;
-  else nice = 2;
+  else nice = 20;
 
   return nice * factor;
 }
