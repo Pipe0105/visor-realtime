@@ -14,11 +14,14 @@ from app.services.realtime_manager import realtime_manager
 import asyncio
 import uuid
 from app.services.file_reader import trigger_manual_rescan
+from app.services.daily_reset import ensure_daily_reset
+from app.models.daily_summary import DailySalesSummary
 
 router = APIRouter()
 
 @router.get("/")
 def get_invoices(db: Session = Depends(get_db)):
+    ensure_daily_reset(db)
     invoices = db.query(Invoice).order_by(Invoice.created_at.desc()).limit(10).all()
     return {
         "invoices": [
@@ -37,6 +40,7 @@ def get_invoices(db: Session = Depends(get_db)):
 
 @router.post("/")
 def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
+    ensure_daily_reset(db)
     invoice = Invoice(
         number=data.number,
         branch_id=data.branch_id,
@@ -122,6 +126,7 @@ def get_daily_sales(
     db: Session = Depends(get_db),
 ):
     """Return aggregated totals per day for the requested range."""
+    ensure_daily_reset(db)
 
     normalized_branch = (branch or "all").strip()
     reference_date = datetime.now()
@@ -129,30 +134,68 @@ def get_daily_sales(
         reference_date.replace(hour=0, minute=0, second=0, microsecond=0)
         - timedelta(days=max(days - 1, 0))
     )
+    
+    start_date_only = start_date.date()
 
-    date_source = Invoice.invoice_date
+    date_source = func.coalesce(Invoice.invoice_date, Invoice.created_at)
     day_expression = func.date_trunc("day", date_source)
 
-    filters = [Invoice.invoice_date.isnot(None), date_source >= start_date]
+    branch_filters = None
+    summary_branch_filters = []
 
     if normalized_branch.lower() != "all":
         if normalized_branch.upper() == "FLO":
-            filters.append(Invoice.branch_id.is_(None))
+            branch_filters = [Invoice.branch_id.is_(None)]
+            summary_branch_filters.append(DailySalesSummary.branch_id.is_(None))
         else:
-            branch_filter = normalized_branch
             try:
-                branch_uuid = uuid.UUID(branch_filter)
-                filters.append(Invoice.branch_id == branch_uuid)
+                branch_uuid = uuid.UUID(normalized_branch)
+                branch_filters = [Invoice.branch_id == branch_uuid]
+                summary_branch_filters.append(DailySalesSummary.branch_id == branch_uuid)
             except (ValueError, AttributeError):
-                branch_ids = select(Branch.id).where(
-                    func.lower(Branch.code) == branch_filter.lower()
+                branch_match = (
+                    db.query(Branch)
+                    .filter(func.lower(Branch.code) == normalized_branch.lower())
+                    .first()
                 )
-                filters.append(Invoice.branch_id.in_(branch_ids))
+                if not branch_match:
+                    return {
+                        "history": [],
+                        "branch": normalized_branch,
+                        "days": days,
+                    }
+                branch_filters = [Invoice.branch_id == branch_match.id]
+                summary_branch_filters.append(
+                    DailySalesSummary.branch_id == branch_match.id
+                )
+
+    summary_query = db.query(DailySalesSummary).filter(
+        DailySalesSummary.summary_date >= start_date_only
+    )
+    if summary_branch_filters:
+        summary_query = summary_query.filter(*summary_branch_filters)
+
+    summaries = summary_query.all()
+
+    history_map = {}
+    for summary in summaries:
+        entry = history_map.setdefault(
+            summary.summary_date,
+            {"total": 0.0, "net": 0.0, "invoices": 0},
+        )
+        entry["total"] += float(summary.total_sales or 0)
+        entry["net"] += float(summary.total_net_sales or 0)
+        entry["invoices"] += int(summary.total_invoices or 0)
+
+    filters = [date_source >= start_date]
+    if branch_filters:
+        filters.extend(branch_filters)
 
     rows = (
         db.query(
             day_expression.label("day"),
             func.coalesce(func.sum(Invoice.total), 0).label("total_sales"),
+            func.coalesce(func.sum(Invoice.subtotal), 0).label("net_sales"),
             func.count(Invoice.id).label("invoice_count"),
         )
         .filter(*filters)
@@ -161,22 +204,33 @@ def get_daily_sales(
         .all()
     )
 
-    if not rows:
-        return {"history": [], "branch": normalized_branch, "days": days}
-
-    history = []
-    cumulative = 0.0
-    for day, total, invoice_count in rows:
+    for day, total, net_sales, invoice_count in rows:
         if day is None:
             continue
-        total_value = float(total or 0)
+        target_date = day.date()
+        entry = history_map.setdefault(
+            target_date,
+            {"total": 0.0, "net": 0.0, "invoices": 0},
+        )
+        entry["total"] += float(total or 0)
+        entry["net"] += float(net_sales or 0)
+        entry["invoices"] += int(invoice_count or 0)
+
+    if not history_map:
+        return {"history": [], "branch": normalized_branch, "days": days}
+
+    ordered_days = sorted(history_map.keys())
+    history = []
+    cumulative = 0.0
+    for day in ordered_days:
+        total_value = history_map[day]["total"]
         cumulative += total_value
         history.append(
             {
-                "date": day.date().isoformat(),
+                "date": day.isoformat(),
                 "total": total_value,
                 "cumulative": cumulative,
-                "invoices": int(invoice_count or 0),
+                "invoices": history_map[day]["invoices"],
             }
         )
 
@@ -193,6 +247,8 @@ def get_today_invoices(
     db: Session = Depends(get_db),
 ):
     """Devuelve un resumen y la página solicitada de facturas del día."""
+    
+    ensure_daily_reset(db)
 
     today = datetime.now().date()
     tomorrow = today + timedelta(days=1)
