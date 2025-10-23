@@ -11,7 +11,7 @@ import { LineChart } from "@mui/x-charts/LineChart";
 
 const DEFAULT_HEIGHT = 320;
 const FALLBACK_WIDTH = 720;
-const CHART_MARGIN = { left: 72, right: 24, top: 48, bottom: 48 };
+const CHART_MARGIN = { left: 80, right: 24, top: 48, bottom: 48 };
 const MAX_POINTS = 1200;
 const VISIBLE_PADDING_RATIO = 0.05;
 const BUCKET_INTERVAL_MINUTES = 1;
@@ -742,33 +742,7 @@ export default function DailyBillingChart({
     return downsampleLTTB(filteredDataset, MAX_POINTS);
   }, [filteredDataset]);
 
-  const xTickLabelInterval = useMemo(() => {
-    if (!xDomain || xDomain.length !== 2) {
-      return "auto";
-    }
-
-    const [start, end] = xDomain;
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
-      return "auto";
-    }
-
-    const spanMinutes = Math.max((end - start) / 60000, 1);
-    let stepMinutes = 5;
-
-    if (spanMinutes > 60 && spanMinutes <= 120) {
-      stepMinutes = 10;
-    } else if (spanMinutes > 120 && spanMinutes <= 240) {
-      stepMinutes = 15;
-    } else if (spanMinutes > 240 && spanMinutes <= 480) {
-      stepMinutes = 30;
-    } else if (spanMinutes > 480 && spanMinutes <= 960) {
-      stepMinutes = 60;
-    } else if (spanMinutes > 960) {
-      stepMinutes = 120;
-    }
-
-    return createMinuteIntervalFilter(stepMinutes);
-  }, [xDomain]);
+  const xTickLabelInterval = useMemo(() => createMinuteIntervalFilter(30), []);
 
   const axisTooltipSlotProps = useMemo(
     () => ({
