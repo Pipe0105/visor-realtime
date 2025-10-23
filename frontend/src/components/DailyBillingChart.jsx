@@ -40,6 +40,7 @@ export default function DailyBillingChart({
   formatCurrency,
 }) {
   const containerRef = useRef(null);
+  const [width, setWidth] = useState(FALLBACK_WIDTH);
   const [visibleDomain, setVisibleDomain] = useState(null);
   const theme = useTheme();
 
