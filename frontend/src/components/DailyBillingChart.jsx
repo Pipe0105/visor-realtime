@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Typography } from "@mui/material";
+import { Box, Slider, Typography, useTheme } from "@mui/material";
+
 import { LineChart } from "@mui/x-charts/LineChart";
 
 const DEFAULT_HEIGHT = 320;
@@ -39,7 +40,8 @@ export default function DailyBillingChart({
   formatCurrency,
 }) {
   const containerRef = useRef(null);
-  const [width, setWidth] = useState(FALLBACK_WIDTH);
+  const [visibleDomain, setVisibleDomain] = useState(null);
+  const theme = useTheme();
 
   useEffect(() => {
     const element = containerRef.current;
@@ -94,6 +96,81 @@ export default function DailyBillingChart({
       });
   }, [data, averageValue]);
 
+  useEffect(() => {
+    if (dataset.length === 0) {
+      setVisibleDomain(null);
+      return;
+    }
+
+    const firstTimestamp = dataset[0].timestamp;
+    const lastTimestamp = dataset[dataset.length - 1].timestamp;
+
+    setVisibleDomain((prev) => {
+      if (!Array.isArray(prev) || prev.length !== 2) {
+        return [firstTimestamp, lastTimestamp];
+      }
+
+      const [prevStart, prevEnd] = prev;
+      if (prevStart < firstTimestamp || prevEnd > lastTimestamp) {
+        return [firstTimestamp, lastTimestamp];
+      }
+
+      return prev;
+    });
+  }, [dataset]);
+
+  const xDomain = useMemo(() => {
+    if (dataset.length === 0) {
+      return null;
+    }
+
+    if (Array.isArray(visibleDomain) && visibleDomain.length === 2) {
+      const [min, max] = visibleDomain;
+      if (Number.isFinite(min) && Number.isFinite(max) && min < max) {
+        return [min, max];
+      }
+    }
+
+    return [dataset[0].timestamp, dataset[dataset.length - 1].timestamp];
+  }, [dataset, visibleDomain]);
+
+  const sliderBounds = useMemo(() => {
+    if (dataset.length < 2) {
+      return null;
+    }
+
+    const min = dataset[0].timestamp;
+    const max = dataset[dataset.length - 1].timestamp;
+
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
+      return null;
+    }
+
+    const span = Math.max(max - min, 1);
+    const estimatedStep = Math.floor(span / Math.min(dataset.length, 24));
+    const minDistance = Math.min(Math.max(estimatedStep, 1), span);
+
+    return { min, max, minDistance };
+  }, [dataset]);
+
+  const handleSliderChange = (_, value) => {
+    if (!sliderBounds || !Array.isArray(value)) {
+      return;
+    }
+
+    const [rawStart, rawEnd] = value;
+    const clampedStart = Math.min(
+      Math.max(rawStart, sliderBounds.min),
+      sliderBounds.max - sliderBounds.minDistance
+    );
+    const clampedEnd = Math.max(
+      Math.min(rawEnd, sliderBounds.max),
+      clampedStart + sliderBounds.minDistance
+    );
+
+    setVisibleDomain([clampedStart, clampedEnd]);
+  };
+
   if (dataset.length === 0) {
     return (
       <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
@@ -117,6 +194,8 @@ export default function DailyBillingChart({
             scaleType: "time",
             dataKey: "timestamp",
             valueFormatter: formatTimeLabel,
+            min: xDomain ? xDomain[0] : undefined,
+            max: xDomain ? xDomain[1] : undefined,
           },
         ]}
         yAxis={[
@@ -133,6 +212,8 @@ export default function DailyBillingChart({
             area: true,
             color: "#2563eb",
             valueFormatter: formatter,
+            showMark: dataset.length <= 120,
+            areaOpacity: 0.14,
           },
           {
             id: "billing-average",
@@ -154,8 +235,16 @@ export default function DailyBillingChart({
             position: { vertical: "top", horizontal: "center" },
             padding: { top: 8 },
           },
+          tooltip: {
+            trigger: "axis",
+          },
         }}
         sx={{
+          "--Charts-axisLineColor": theme.palette.divider,
+          "--Charts-axisTickColor": theme.palette.divider,
+          "--Charts-axisLabelColor": theme.palette.text.secondary,
+          "--Charts-legendLabelColor": theme.palette.text.secondary,
+          "--Charts-tooltip-background": theme.palette.background.paper,
           [`.MuiLineElement-root`]: {
             strokeWidth: 2.25,
           },
@@ -169,19 +258,44 @@ export default function DailyBillingChart({
           },
         }}
       />
+      {sliderBounds ? (
+        <Box sx={{ mt: 2.5 }}>
+          <Slider
+            value={xDomain ?? [sliderBounds.min, sliderBounds.max]}
+            onChange={handleSliderChange}
+            valueLabelDisplay="auto"
+            valueLabelFormat={(value) => formatTimeLabel(value)}
+            min={sliderBounds.min}
+            max={sliderBounds.max}
+            disableSwap
+            minDistance={sliderBounds.minDistance}
+            sx={{
+              color: theme.palette.primary.main,
+              "& .MuiSlider-valueLabel": {
+                backgroundColor: theme.palette.background.paper,
+                color: theme.palette.text.primary,
+                border: `1px solid ${theme.palette.divider}`,
+              },
+            }}
+            aria-label="Seleccionar rango de tiempo"
+          />
+        </Box>
+      ) : null}
       <Typography
         variant="caption"
         sx={{
           display: "block",
           mt: 1.5,
-          color: "var(--muted-foreground, #64748b)",
+          color: theme.palette.text.secondary,
+
           fontSize: "0.7rem",
           letterSpacing: "0.08em",
           textTransform: "uppercase",
         }}
       >
         Pasa el cursor sobre cada punto para ver la factura y su desviación del
-        promedio.
+        promedio. Usa el control inferior para acercar o desplazar la ventana
+        temporal.
       </Typography>
     </Box>
   );
