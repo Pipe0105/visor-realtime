@@ -36,6 +36,8 @@ export function useRealtimeInvoices() {
   });
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
   const [dailySalesHistory, setDailySalesHistory] = useState([]);
+  const [salesForecast, setSalesForecast] = useState(null);
+
   const [activePanel, setActivePanel] = useState("facturas");
   const [currentPage, setCurrentPage] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -165,6 +167,31 @@ export function useRealtimeInvoices() {
     [filters.branch]
   );
 
+  const loadSalesForecast = useCallback(
+    async (branchValue) => {
+      const params = new URLSearchParams();
+      const targetBranch = branchValue ?? filters.branch ?? "all";
+      if (targetBranch && targetBranch !== "all") {
+        params.set("branch", targetBranch);
+      }
+
+      const queryString = params.toString();
+      const endpoint = queryString
+        ? `/invoices/today/forecast?${queryString}`
+        : `/invoices/today/forecast`;
+
+      const response = await apiFetch(endpoint);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      return payload;
+    },
+    [filters.branch]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -185,6 +212,27 @@ export function useRealtimeInvoices() {
       cancelled = true;
     };
   }, [loadDailySalesHistory]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadSalesForecast(filters.branch)
+      .then((forecast) => {
+        if (!cancelled) {
+          setSalesForecast(forecast);
+        }
+      })
+      .catch((error) => {
+        console.error("Error obteniendo pronóstico de ventas", error);
+        if (!cancelled) {
+          setSalesForecast(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filters.branch, loadSalesForecast]);
 
   const connectWebSocket = useCallback(() => {
     if (typeof window === "undefined" || !shouldReconnectRef.current) {
@@ -452,6 +500,17 @@ export function useRealtimeInvoices() {
         );
         setDailySalesHistory([]);
       }
+
+      try {
+        const forecast = await loadSalesForecast(filters.branch);
+        setSalesForecast(forecast);
+      } catch (error) {
+        console.error(
+          "Error actualizando pronóstico durante el refresco",
+          error
+        );
+        setSalesForecast(null);
+      }
     } catch (error) {
       console.error("Error general durante el refresco manual", error);
     } finally {
@@ -463,6 +522,7 @@ export function useRealtimeInvoices() {
     isRefreshing,
     loadDailySalesHistory,
     loadInvoices,
+    loadSalesForecast,
   ]);
 
   useEffect(() => {
@@ -549,15 +609,39 @@ export function useRealtimeInvoices() {
     [selectedInvoices]
   );
 
-  const summary = useMemo(
-    () => ({
+  const summary = useMemo(() => {
+    const forecastData = salesForecast?.forecast ?? null;
+    const todayData = salesForecast?.today ?? null;
+
+    const normalizedForecast = forecastData
+      ? {
+          total: toNumber(forecastData.total),
+          remaining: toNumber(forecastData.remaining),
+          method: forecastData.method ?? null,
+          ratio: toNumber(forecastData.ratio),
+          historyDays: forecastData.history_days ?? 0,
+          historySamples: forecastData.history_samples ?? 0,
+          historyAverageTotal: toNumber(forecastData.history_average_total),
+          historyAverageFirstChunk: toNumber(
+            forecastData.history_average_first_chunk
+          ),
+          generatedAt: forecastData.generated_at ?? null,
+          branch: salesForecast?.branch ?? "all",
+          firstChunkInvoices: todayData?.first_chunk_invoices ?? 0,
+          firstChunkTotal: toNumber(todayData?.first_chunk_total),
+          currentTotal: toNumber(todayData?.current_total),
+          invoiceCount: todayData?.invoice_count ?? 0,
+        }
+      : null;
+
+    return {
       total: dailySummary.totalSales,
       netTotal: dailySummary.totalNetSales,
       count: dailySummary.totalInvoices,
       avg: dailySummary.averageTicket,
-    }),
-    [dailySummary]
-  );
+      forecast: normalizedForecast,
+    };
+  }, [dailySummary, salesForecast]);
 
   const billingSeries = useMemo(() => {
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -960,5 +1044,6 @@ export function useRealtimeInvoices() {
     paginationRange,
     currentPage,
     setCurrentPage,
+    salesForecast,
   };
 }

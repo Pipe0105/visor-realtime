@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from datetime import datetime, timedelta
 from app.database import get_db
 from app.models.invoice import Invoice
@@ -18,6 +18,9 @@ from app.services.daily_reset import ensure_daily_reset
 from app.models.daily_summary import DailySalesSummary
 
 router = APIRouter()
+
+FIRST_CHUNK_INVOICES = 100
+DEFAULT_FORECAST_HISTORY_DAYS = 14
 
 @router.get("/")
 def get_invoices(db: Session = Depends(get_db)):
@@ -321,6 +324,255 @@ def get_today_invoices(
         "average_ticket": average_ticket,
         "limit": limit,
         "offset": offset,
+    }
+    
+def _resolve_branch_filters(db: Session, branch: str):
+    normalized_branch = (branch or "all").strip()
+
+    if normalized_branch.lower() == "all":
+        return {"filters": [], "label": "all"}
+
+    if normalized_branch.upper() == "FLO":
+        return {"filters": [Invoice.branch_id.is_(None)], "label": "FLO"}
+
+    try:
+        branch_uuid = uuid.UUID(normalized_branch)
+        return {
+            "filters": [Invoice.branch_id == branch_uuid],
+            "label": str(branch_uuid),
+        }
+    except (ValueError, AttributeError):
+        branch_match = (
+            db.query(Branch)
+            .filter(func.lower(Branch.code) == normalized_branch.lower())
+            .first()
+        )
+        if branch_match:
+            return {
+                "filters": [Invoice.branch_id == branch_match.id],
+                "label": branch_match.code or str(branch_match.id),
+            }
+
+    return {"filters": None, "label": normalized_branch}
+
+
+def _float_or_zero(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+@router.get("/today/forecast")
+def get_today_forecast(
+    branch: str = Query("all"),
+    history_days: int = Query(DEFAULT_FORECAST_HISTORY_DAYS, ge=3, le=90),
+    db: Session = Depends(get_db),
+):
+    """Devuelve un pronóstico estimado de ventas para el día en curso."""
+
+    ensure_daily_reset(db)
+
+    resolution = _resolve_branch_filters(db, branch)
+    branch_filters = resolution["filters"]
+    branch_label = resolution["label"]
+
+    if branch_filters is None:
+        return {
+            "branch": branch_label,
+            "history": [],
+            "today": {
+                "current_total": 0.0,
+                "current_net_total": 0.0,
+                "invoice_count": 0,
+                "first_chunk_total": 0.0,
+                "first_chunk_invoices": 0,
+                "average_ticket": 0.0,
+            },
+            "forecast": {
+                "total": 0.0,
+                "remaining": 0.0,
+                "method": "no_branch_match",
+                "ratio": 0.0,
+                "history_days": 0,
+                "history_samples": 0,
+                "history_average_total": 0.0,
+                "history_average_first_chunk": 0.0,
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+            },
+        }
+
+    now = datetime.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_start = today_start + timedelta(days=1)
+    history_start = today_start - timedelta(days=history_days)
+
+    history_filters = [
+        Invoice.created_at >= history_start,
+        Invoice.created_at < today_start,
+    ]
+    today_filters = [
+        Invoice.created_at >= today_start,
+        Invoice.created_at < tomorrow_start,
+    ]
+
+    if branch_filters:
+        history_filters.extend(branch_filters)
+        today_filters.extend(branch_filters)
+
+    day_expression = func.date_trunc("day", Invoice.created_at)
+
+    history_subquery = (
+        db.query(
+            day_expression.label("day"),
+            Invoice.total.label("invoice_total"),
+            func.row_number()
+            .over(
+                partition_by=day_expression,
+                order_by=[Invoice.created_at.asc(), Invoice.id.asc()],
+            )
+            .label("row_number"),
+        )
+        .filter(*history_filters)
+        .subquery()
+    )
+
+    first_chunk_case = case(
+        (history_subquery.c.row_number <= FIRST_CHUNK_INVOICES, history_subquery.c.invoice_total),
+        else_=0,
+    )
+
+    history_rows = (
+        db.query(
+            history_subquery.c.day.label("day"),
+            func.count().label("invoice_count"),
+            func.coalesce(func.sum(history_subquery.c.invoice_total), 0).label(
+                "total_sales"
+            ),
+            func.coalesce(func.sum(first_chunk_case), 0).label("first_chunk_total"),
+        )
+        .group_by(history_subquery.c.day)
+        .order_by(history_subquery.c.day.desc())
+        .limit(history_days)
+        .all()
+    )
+
+    history_entries = []
+    ratio_samples = []
+    total_accumulator = 0.0
+    first_chunk_accumulator = 0.0
+
+    for row in history_rows:
+        day = row.day.date() if hasattr(row.day, "date") else row.day
+        total_sales = _float_or_zero(row.total_sales)
+        first_chunk_total = _float_or_zero(row.first_chunk_total)
+        invoice_count = int(row.invoice_count or 0)
+
+        ratio = None
+        if first_chunk_total > 0:
+            ratio = total_sales / first_chunk_total
+            ratio_samples.append((ratio, total_sales))
+
+        history_entries.append(
+            {
+                "date": day.isoformat() if hasattr(day, "isoformat") else str(day),
+                "total": total_sales,
+                "first_chunk_total": first_chunk_total,
+                "invoice_count": invoice_count,
+                "ratio": ratio,
+            }
+        )
+
+        total_accumulator += total_sales
+        first_chunk_accumulator += first_chunk_total
+
+    weighted_ratio_sum = sum(ratio * weight for ratio, weight in ratio_samples)
+    weight_total = sum(weight for _, weight in ratio_samples)
+
+    if weight_total > 0:
+        average_ratio = weighted_ratio_sum / weight_total
+    elif ratio_samples:
+        average_ratio = sum(ratio for ratio, _ in ratio_samples) / len(ratio_samples)
+    else:
+        average_ratio = 1.0
+
+    today_first_chunk_rows = (
+        db.query(Invoice.total)
+        .filter(*today_filters)
+        .order_by(Invoice.created_at.asc(), Invoice.id.asc())
+        .limit(FIRST_CHUNK_INVOICES)
+        .all()
+    )
+
+    first_chunk_total_today = sum(
+        _float_or_zero(row.total) for row in today_first_chunk_rows
+    )
+    first_chunk_invoices_today = len(today_first_chunk_rows)
+
+    today_totals_row = (
+        db.query(
+            func.coalesce(func.sum(Invoice.total), 0).label("current_total"),
+            func.coalesce(func.sum(Invoice.subtotal), 0).label("current_net_total"),
+            func.count(Invoice.id).label("invoice_count"),
+        )
+        .filter(*today_filters)
+        .one()
+    )
+
+    current_total = _float_or_zero(today_totals_row.current_total)
+    current_net_total = _float_or_zero(today_totals_row.current_net_total)
+    current_invoice_count = int(today_totals_row.invoice_count or 0)
+
+    forecast_method = "historical_average"
+    forecast_total = 0.0
+
+    if first_chunk_total_today > 0 and ratio_samples:
+        forecast_total = first_chunk_total_today * average_ratio
+        forecast_method = "first_chunk_ratio"
+    elif total_accumulator > 0 and history_entries:
+        forecast_total = total_accumulator / len(history_entries)
+    else:
+        forecast_total = current_total
+        forecast_method = "current_total_only"
+
+    if forecast_total < current_total:
+        forecast_total = current_total
+
+    remaining_total = max(forecast_total - current_total, 0)
+
+    average_daily_total = (
+        total_accumulator / len(history_entries) if history_entries else current_total
+    )
+    average_first_chunk_total = (
+        first_chunk_accumulator / len(history_entries)
+        if history_entries
+        else first_chunk_total_today
+    )
+
+    return {
+        "branch": branch_label,
+        "history": history_entries,
+        "today": {
+            "current_total": current_total,
+            "current_net_total": current_net_total,
+            "invoice_count": current_invoice_count,
+            "first_chunk_total": first_chunk_total_today,
+            "first_chunk_invoices": first_chunk_invoices_today,
+            "average_ticket": current_total / current_invoice_count
+            if current_invoice_count
+            else 0.0,
+        },
+        "forecast": {
+            "total": forecast_total,
+            "remaining": remaining_total,
+            "method": forecast_method,
+            "ratio": average_ratio,
+            "history_days": len(history_entries),
+            "history_samples": len(ratio_samples),
+            "history_average_total": average_daily_total,
+            "history_average_first_chunk": average_first_chunk_total,
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+        },
     }
 
 @router.get("/{invoice_number}/items")

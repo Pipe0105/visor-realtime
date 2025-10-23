@@ -7,6 +7,7 @@ export default function MetricCard({
   value,
   color = "text-primary",
   icon = "",
+  helperText = "",
 }) {
   const valueColor =
     color === "text-primary" ? "text-slate-900 dark:text-foreground" : color;
@@ -37,6 +38,11 @@ export default function MetricCard({
         >
           {value}
         </CardTitle>
+        {helperText ? (
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-300">
+            {helperText}
+          </p>
+        ) : null}
       </CardHeader>
     </Card>
   );
