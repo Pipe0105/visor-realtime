@@ -291,6 +291,12 @@ export default function DailySalesChart({ data }) {
                 },
               }}
               sx={{
+                "--Charts-axisLineColor": "var(--chart-axis-line)",
+                "--Charts-axisTickColor": "var(--chart-axis-tick)",
+                "--Charts-axisLabelColor": "var(--chart-axis-label)",
+                "--Charts-legendLabelColor": "var(--chart-axis-legend)",
+                "--Charts-tooltip-background": "var(--chart-tooltip-bg)",
+                "--Charts-tooltip-text-color": "var(--chart-tooltip-text)",
                 [`.MuiLineElement-root`]: {
                   strokeWidth: 2.25,
                 },
@@ -302,12 +308,13 @@ export default function DailySalesChart({ data }) {
                   fontWeight: 600,
                   letterSpacing: "0.08em",
                   textTransform: "uppercase",
-                  fill: "#475569",
+                  fill: "var(--chart-axis-label)",
                 },
                 [`.MuiChartsAxis-tickLabel`]: {
                   fontSize: 12,
                   textTransform: "uppercase",
                   letterSpacing: "0.08em",
+                  fill: "var(--chart-axis-label)",
                 },
               }}
             />

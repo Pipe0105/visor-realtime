@@ -29,6 +29,12 @@
     --scrollbar-track: var(--muted);
     --scrollbar-thumb: var(--primary);
     --scrollbar-thumb-hover: var(--primary);
+    --chart-axis-line: rgba(15, 23, 42, 0.18);
+    --chart-axis-tick: rgba(15, 23, 42, 0.45);
+    --chart-axis-label: #475569;
+    --chart-axis-legend: #475569;
+    --chart-tooltip-bg: #ffffff;
+    --chart-tooltip-text: #0f172a;
   }
 
   .dark {
@@ -54,6 +60,12 @@
     --scrollbar-track: var(--muted);
     --scrollbar-thumb: 209 100% 55%;
     --scrollbar-thumb-hover: 209 100% 50%;
+    --chart-axis-line: rgba(226, 232, 240, 0.24);
+    --chart-axis-tick: rgba(226, 232, 240, 0.45);
+    --chart-axis-label: rgba(226, 232, 240, 0.82);
+    --chart-axis-legend: rgba(226, 232, 240, 0.82);
+    --chart-tooltip-bg: rgba(15, 23, 42, 0.92);
+    --chart-tooltip-text: rgba(226, 232, 240, 0.95);
   }
 
   * {

@@ -6,7 +6,6 @@ import React, {
   useState,
 } from "react";
 import { Box, Typography, useTheme } from "@mui/material";
-import { alpha } from "@mui/material/styles";
 import { ChartsTooltipPaper } from "@mui/x-charts/ChartsTooltip/ChartsTooltipTable";
 import { LineChart } from "@mui/x-charts/LineChart";
 
@@ -64,38 +63,6 @@ function formatSignedCurrency(value, formatter) {
   const formatted = formatter(Math.abs(numericValue));
   const prefix = numericValue >= 0 ? "+" : "−";
   return `${prefix}${formatted}`;
-}
-
-function useTailwindDarkMode() {
-  const getItsDark = useCallback(() => {
-    if (typeof document === "undefined") {
-      return false;
-    }
-    return document.documentElement.classList.contains("dark");
-  }, []);
-
-  const [isDarkMode, setItsDarkMode] = useState(getItsDark);
-
-  useEffect(() => {
-    if (
-      typeof document === "undefined" ||
-      typeof MutationObserver === "undefined"
-    ) {
-      return undefined;
-    }
-
-    const observer = new MutationObserver(() => {
-      setItsDarkMode(getItsDark());
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-
-    return () => observer.disconnect();
-  }, [getItsDark]);
-
-  return isDarkMode;
 }
 
 function BillingAxisTooltipContent(props) {
@@ -807,30 +774,6 @@ export default function DailyBillingChart({
       isAtMaxZoom
   );
 
-  const prefersDarkMode = useTailwindDarkMode();
-
-  const axisColors = useMemo(() => {
-    const darkMode = prefersDarkMode || theme.palette.mode === "dark";
-
-    if (darkMode) {
-      const base = theme.palette.common.white;
-      return {
-        line: alpha(base, 0.24),
-        tick: alpha(base, 0.4),
-        label: alpha(base, 0.78),
-        legend: alpha(base, 0.82),
-      };
-    }
-
-    const secondary = theme.palette.text.secondary;
-    return {
-      line: theme.palette.divider,
-      tick: alpha(secondary, 0.75),
-      label: secondary,
-      legend: secondary,
-    };
-  }, [prefersDarkMode, theme]);
-
   return (
     <Box
       ref={containerRef}
@@ -903,12 +846,12 @@ export default function DailyBillingChart({
           },
         }}
         sx={{
-          "--Charts-axisLineColor": axisColors.line,
-          "--Charts-axisTickColor": axisColors.tick,
-          "--Charts-axisLabelColor": axisColors.label,
-          "--Charts-legendLabelColor": axisColors.legend,
-          "--Charts-tooltip-background": theme.palette.background.paper,
-          "--Charts-tooltip-text-color": theme.palette.text.primary,
+          "--Charts-axisLineColor": "var(--chart-axis-line)",
+          "--Charts-axisTickColor": "var(--chart-axis-tick)",
+          "--Charts-axisLabelColor": "var(--chart-axis-label)",
+          "--Charts-legendLabelColor": "var(--chart-axis-legend)",
+          "--Charts-tooltip-background": "var(--chart-tooltip-bg)",
+          "--Charts-tooltip-text-color": "var(--chart-tooltip-text)",
 
           [`.MuiLineElement-root`]: {
             strokeWidth: 2.25,
@@ -926,6 +869,7 @@ export default function DailyBillingChart({
             fontSize: 12,
             textTransform: "uppercase",
             letterSpacing: "0.08em",
+            fill: "var(--chart-axis-label)",
           },
         }}
       />

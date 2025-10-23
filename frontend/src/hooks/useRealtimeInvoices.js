@@ -1099,7 +1099,6 @@ export function useRealtimeInvoices() {
       }
       return [];
     }
-
     const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
 
     let cumulative = 0;
@@ -1114,6 +1113,13 @@ export function useRealtimeInvoices() {
           liveTotal + LIVE_TOTAL_TOLERANCE >= baseTotal
             ? Math.max(baseTotal, liveTotal)
             : baseTotal + liveTotal;
+        if (baseTotal <= 0) {
+          total = liveTotal;
+        } else if (liveTotal > baseTotal + LIVE_TOTAL_TOLERANCE) {
+          total = liveTotal;
+        } else {
+          total = Math.max(baseTotal, liveTotal);
+        }
       }
       cumulative += total;
       return {
