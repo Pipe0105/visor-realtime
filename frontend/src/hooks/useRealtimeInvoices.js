@@ -664,6 +664,9 @@ export function useRealtimeInvoices() {
       timeStyle: "short",
     });
 
+    const BUCKET_SIZE_MINUTES = 1;
+    const BUCKET_SIZE_MS = BUCKET_SIZE_MINUTES * 60 * 1000;
+
     const entries = messages
       .map((msg) => {
         const rawTimestamp =
@@ -693,19 +696,70 @@ export function useRealtimeInvoices() {
       };
     }
 
-    const average =
+    const invoiceAverage =
       entries.reduce((sum, item) => sum + toNumber(item.total), 0) /
       entries.length;
 
-    const series = entries.map((entry) => ({
-      ...entry,
-      deviation: toNumber(entry.total) - average,
-      id: `${entry.invoiceNumber ?? "invoice"}-${entry.iso}`,
-    }));
+    const bucketsMap = new Map();
+
+    entries.forEach((entry) => {
+      const bucketStart =
+        Math.floor(entry.timestamp / BUCKET_SIZE_MS) * BUCKET_SIZE_MS;
+      const bucketEnd = bucketStart + BUCKET_SIZE_MS;
+
+      if (!bucketsMap.has(bucketStart)) {
+        bucketsMap.set(bucketStart, {
+          bucketStart,
+          bucketEnd,
+          total: 0,
+          invoices: [],
+        });
+      }
+
+      const bucket = bucketsMap.get(bucketStart);
+      bucket.total += toNumber(entry.total);
+      bucket.invoices.push({
+        ...entry,
+        deviation: toNumber(entry.total) - invoiceAverage,
+      });
+    });
+
+    const buckets = Array.from(bucketsMap.values()).sort(
+      (a, b) => a.bucketStart - b.bucketStart
+    );
+
+    const bucketAverage =
+      buckets.reduce((sum, bucket) => sum + bucket.total, 0) / buckets.length;
+
+    const series = buckets.map((bucket) => {
+      const startDate = new Date(bucket.bucketStart);
+      const endDate = new Date(bucket.bucketEnd - 1);
+
+      const windowLabel = `${timeFormatter.format(
+        startDate
+      )} - ${timeFormatter.format(endDate)}`;
+
+      return {
+        id: `bucket-${bucket.bucketStart}`,
+        timestamp: bucket.bucketStart,
+        total: bucket.total,
+        average: bucketAverage,
+        deviation: bucket.total - bucketAverage,
+        timeLabel: windowLabel,
+        tooltipLabel: `${bucket.invoices.length} ${
+          bucket.invoices.length === 1 ? "factura" : "facturas"
+        } entre ${windowLabel}`,
+        invoiceCount: bucket.invoices.length,
+        bucketStart: bucket.bucketStart,
+        bucketEnd: bucket.bucketEnd,
+        invoices: bucket.invoices,
+        windowLabel,
+      };
+    });
 
     return {
       series,
-      average,
+      average: bucketAverage,
     };
   }, [messages]);
 

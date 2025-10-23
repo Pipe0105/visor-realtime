@@ -6,7 +6,7 @@ import React, {
   useState,
 } from "react";
 import { Box, Typography, useTheme } from "@mui/material";
-
+import { ChartsTooltipPaper } from "@mui/x-charts/ChartsTooltip/ChartsTooltipTable";
 import { LineChart } from "@mui/x-charts/LineChart";
 
 const DEFAULT_HEIGHT = 320;
@@ -14,6 +14,8 @@ const FALLBACK_WIDTH = 720;
 const CHART_MARGIN = { left: 72, right: 24, top: 48, bottom: 48 };
 const MAX_POINTS = 1200;
 const VISIBLE_PADDING_RATIO = 0.05;
+const BUCKET_INTERVAL_MINUTES = 1;
+const BUCKET_INTERVAL_MS = BUCKET_INTERVAL_MINUTES * 60 * 1000;
 
 const axisCurrencyFormatter = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -41,6 +43,210 @@ function formatTimeLabel(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function createMinuteIntervalFilter(stepMinutes) {
+  const step = Math.max(Math.floor(stepMinutes), 1);
+  return (value) => {
+    const timestamp =
+      value instanceof Date ? value.getTime() : Number(value) || 0;
+    if (!Number.isFinite(timestamp)) {
+      return false;
+    }
+    const totalMinutes = Math.round(timestamp / 60000);
+    return totalMinutes % step === 0;
+  };
+}
+
+function formatSignedCurrency(value, formatter) {
+  const numericValue = Number(value) || 0;
+  const formatted = formatter(Math.abs(numericValue));
+  const prefix = numericValue >= 0 ? "+" : "−";
+  return `${prefix}${formatted}`;
+}
+
+function BillingAxisTooltipContent(props) {
+  const {
+    axisValue,
+    dataIndex,
+    classes,
+    sx,
+    dataset = [],
+    currencyFormatter,
+  } = props;
+
+  const theme = useTheme();
+
+  if (dataIndex == null) {
+    return null;
+  }
+
+  const axisTimestamp =
+    axisValue instanceof Date ? axisValue.getTime() : Number(axisValue);
+
+  if (!Number.isFinite(axisTimestamp)) {
+    return null;
+  }
+
+  const bucket =
+    dataset.find((item) => {
+      const itemTimestamp = Number(item?.timestamp);
+      if (!Number.isFinite(itemTimestamp)) {
+        return false;
+      }
+
+      if (itemTimestamp === axisTimestamp) {
+        return true;
+      }
+
+      return Math.abs(itemTimestamp - axisTimestamp) <= BUCKET_INTERVAL_MS / 2;
+    }) || null;
+
+  if (!bucket) {
+    return null;
+  }
+
+  const invoices = Array.isArray(bucket.invoices) ? bucket.invoices : [];
+  const invoiceCount = invoices.length;
+  const formatCurrency =
+    typeof currencyFormatter === "function"
+      ? currencyFormatter
+      : (value) => axisCurrencyFormatter.format(Math.max(value, 0));
+  const totalLabel = formatCurrency(Number(bucket.total) || 0);
+
+  return (
+    <ChartsTooltipPaper sx={sx} className={classes.paper}>
+      <Box sx={{ px: 2, py: 1.5, maxWidth: 320 }}>
+        <Typography
+          variant="subtitle2"
+          sx={{
+            fontWeight: 600,
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+          }}
+        >
+          {bucket.tooltipLabel || bucket.timeLabel || "Detalle"}
+        </Typography>
+        <Typography
+          variant="caption"
+          sx={{
+            color: theme.palette.text.secondary,
+            display: "block",
+            mt: 0.5,
+            letterSpacing: "0.02em",
+          }}
+        >
+          {invoiceCount === 1
+            ? "Incluye 1 factura"
+            : `Incluye ${invoiceCount} facturas`}
+        </Typography>
+        <Typography
+          variant="body2"
+          sx={{
+            fontWeight: 600,
+            mt: 1,
+            letterSpacing: "0.02em",
+          }}
+        >
+          Total: {totalLabel}
+        </Typography>
+        {Number.isFinite(Number(bucket.deviation)) ? (
+          <Typography
+            variant="caption"
+            sx={{
+              display: "block",
+              mt: 0.25,
+              fontWeight: 600,
+              color:
+                Number(bucket.deviation) >= 0
+                  ? theme.palette.success.main
+                  : theme.palette.error.main,
+            }}
+          >
+            {formatSignedCurrency(
+              Number(bucket.deviation) || 0,
+              formatCurrency
+            )}{" "}
+            vs. promedio del día
+          </Typography>
+        ) : null}
+        {invoiceCount > 0 ? (
+          <Box
+            component="ul"
+            sx={{
+              listStyle: "none",
+              p: 0,
+              m: 0,
+              mt: 1.5,
+              display: "flex",
+              flexDirection: "column",
+              gap: 1,
+            }}
+          >
+            {invoices.map((invoice) => {
+              const invoiceTotal = formatCurrency(Number(invoice.total) || 0);
+              const deviation = Number(invoice.deviation);
+              const key =
+                invoice.id ||
+                `${invoice.invoiceNumber ?? "invoice"}-${invoice.iso}`;
+
+              return (
+                <Box
+                  key={key}
+                  component="li"
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 0.25,
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: theme.palette.text.secondary,
+                      letterSpacing: "0.02em",
+                    }}
+                  >
+                    {invoice.timeLabel}
+                    {invoice.invoiceNumber
+                      ? ` · #${invoice.invoiceNumber}`
+                      : ""}
+                    {invoice.branch ? ` · ${invoice.branch}` : ""}
+                  </Typography>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 1.5,
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {invoiceTotal}
+                    </Typography>
+                    {Number.isFinite(deviation) ? (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontWeight: 600,
+                          color:
+                            deviation >= 0
+                              ? theme.palette.success.main
+                              : theme.palette.error.main,
+                        }}
+                      >
+                        {formatSignedCurrency(deviation, formatCurrency)}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                </Box>
+              );
+            })}
+          </Box>
+        ) : null}
+      </Box>
+    </ChartsTooltipPaper>
+  );
 }
 
 function downsampleLTTB(data, threshold) {
@@ -290,9 +496,6 @@ export default function DailyBillingChart({
       }
 
       const span = domainEnd - domainStart;
-      if (span <= sliderBounds.minDistance) {
-        return;
-      }
 
       const geometry = chartGeometry();
       if (!geometry) {
@@ -327,6 +530,9 @@ export default function DailyBillingChart({
       }
 
       const direction = event.deltaY > 0 ? 1 : -1;
+      if (direction < 0 && span <= sliderBounds.minDistance) {
+        return;
+      }
       const zoomIntensity = 0.18;
       const totalSpan = sliderBounds.max - sliderBounds.min;
       const minSpan = sliderBounds.minDistance;
@@ -536,6 +742,42 @@ export default function DailyBillingChart({
     return downsampleLTTB(filteredDataset, MAX_POINTS);
   }, [filteredDataset]);
 
+  const xTickLabelInterval = useMemo(() => {
+    if (!xDomain || xDomain.length !== 2) {
+      return "auto";
+    }
+
+    const [start, end] = xDomain;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      return "auto";
+    }
+
+    const spanMinutes = Math.max((end - start) / 60000, 1);
+    let stepMinutes = 5;
+
+    if (spanMinutes > 60 && spanMinutes <= 120) {
+      stepMinutes = 10;
+    } else if (spanMinutes > 120 && spanMinutes <= 240) {
+      stepMinutes = 15;
+    } else if (spanMinutes > 240 && spanMinutes <= 480) {
+      stepMinutes = 30;
+    } else if (spanMinutes > 480 && spanMinutes <= 960) {
+      stepMinutes = 60;
+    } else if (spanMinutes > 960) {
+      stepMinutes = 120;
+    }
+
+    return createMinuteIntervalFilter(stepMinutes);
+  }, [xDomain]);
+
+  const axisTooltipSlotProps = useMemo(
+    () => ({
+      dataset: chartDataset,
+      currencyFormatter: formatter,
+    }),
+    [chartDataset, formatter]
+  );
+
   if (dataset.length === 0) {
     return (
       <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
@@ -578,6 +820,7 @@ export default function DailyBillingChart({
             valueFormatter: formatTimeLabel,
             min: xDomain ? xDomain[0] : undefined,
             max: xDomain ? xDomain[1] : undefined,
+            tickLabelInterval: xTickLabelInterval,
           },
         ]}
         yAxis={[
@@ -589,7 +832,7 @@ export default function DailyBillingChart({
           {
             id: "billing-total",
             dataKey: "total",
-            label: "Facturación",
+            label: `Facturación (${BUCKET_INTERVAL_MINUTES} min)`,
             curve: chartDataset.length > 480 ? "linear" : "catmullRom",
             area: chartDataset.length <= 1600,
             color: "#2563eb",
@@ -601,7 +844,7 @@ export default function DailyBillingChart({
           {
             id: "billing-average",
             dataKey: "average",
-            label: "Promedio diario",
+            label: `Promedio (${BUCKET_INTERVAL_MINUTES} min)`,
             curve: "linear",
             showMark: false,
             color: "#f97316",
@@ -620,6 +863,12 @@ export default function DailyBillingChart({
           },
           tooltip: {
             trigger: "axis",
+            slots: {
+              axisContent: BillingAxisTooltipContent,
+            },
+            slotProps: {
+              axisContent: axisTooltipSlotProps,
+            },
           },
         }}
         sx={{
@@ -676,9 +925,10 @@ export default function DailyBillingChart({
           textTransform: "uppercase",
         }}
       >
-        Pasa el cursor sobre cada punto para ver la factura y su desviación del
-        promedio. Usa la rueda del mouse para acercar o alejar y arrastra sobre
-        la gráfica para desplazarte sin perder el nivel de zoom.
+        Cada punto agrupa la facturación emitida en ventanas por minuto. Pasa el
+        cursor para ver el detalle, usa la rueda del mouse para acercar o alejar
+        y arrastra sobre la gráfica para desplazarte sin perder el nivel de
+        zoom.
       </Typography>
     </Box>
   );
