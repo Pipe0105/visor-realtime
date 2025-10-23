@@ -192,3 +192,36 @@ export function getInvoiceDay(value) {
 
   return null;
 }
+
+function getInvoiceTimestampValue(invoice) {
+  if (!invoice || typeof invoice !== "object") {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const parsedTimestamp = parseInvoiceTimestamp(
+    invoice.invoice_date ?? invoice.timestamp ?? invoice.created_at ?? null
+  );
+
+  if (parsedTimestamp) {
+    return parsedTimestamp.getTime();
+  }
+
+  return Number.NEGATIVE_INFINITY;
+}
+
+export function sortInvoicesByTimestampDesc(invoice) {
+  return [...invoice].sort((a, b) => {
+    const timeA = getInvoiceTimestampValue(a);
+    const timeB = getInvoiceTimestampValue(b);
+
+    if (timeA === timeB) {
+      return String(b?.invoice_number ?? "").localeCompare(
+        String(a?.invoice_number ?? ""),
+        undefined,
+        { numeric: true, sensitivity: "base" }
+      );
+    }
+
+    return timeB - timeA;
+  });
+}

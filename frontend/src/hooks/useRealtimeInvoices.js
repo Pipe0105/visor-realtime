@@ -5,6 +5,7 @@ import {
   getInvoiceIdentifier,
   normalizeInvoice,
   normalizeTimestamp,
+  sortInvoicesByTimestampDesc,
   parseInvoiceTimestamp,
   toNumber,
 } from "../lib/invoiceUtils";
@@ -55,37 +56,40 @@ export function useRealtimeInvoices() {
 
       if (Array.isArray(data)) {
         const normalizedInvoices = data.map(normalizeInvoice);
-        setMessages(normalizedInvoices);
+        const sortedInvoices = sortInvoicesByTimestampDesc(normalizedInvoices);
+        setMessages(sortedInvoices);
         knownInvoicesRef.current = new Set(
-          normalizedInvoices
+          sortedInvoices
             .map((invoice) => getInvoiceIdentifier(invoice))
             .filter(Boolean)
         );
-        const total = normalizedInvoices.reduce(
+        const total = sortedInvoices.reduce(
           (sum, f) => sum + toNumber(f.total),
           0
         );
-        const totalNet = normalizedInvoices.reduce(
+        const totalNet = sortedInvoices.reduce(
           (sum, f) => sum + toNumber(f.subtotal ?? f.total),
           0
         );
-        const count = normalizedInvoices.length;
+        const count = sortedInvoices.length;
         setDailySummary({
           totalSales: total,
           totalNetSales: totalNet,
           totalInvoices: count,
           averageTicket: count ? total / count : 0,
         });
-        return normalizedInvoices;
+        return sortedInvoices;
       }
 
       const normalizedInvoices = Array.isArray(data.invoices)
         ? data.invoices.map(normalizeInvoice)
         : [];
 
-      setMessages(normalizedInvoices);
+      const sortedInvoices = sortInvoicesByTimestampDesc(normalizedInvoices);
+
+      setMessages(sortedInvoices);
       knownInvoicesRef.current = new Set(
-        normalizedInvoices
+        sortedInvoices
           .map((invoice) => getInvoiceIdentifier(invoice))
           .filter(Boolean)
       );
@@ -103,7 +107,7 @@ export function useRealtimeInvoices() {
         totalInvoices,
         averageTicket,
       });
-      return normalizedInvoices;
+      return sortedInvoices;
     } catch (err) {
       console.error("Error cargando facturas", err);
       setMessages([]);
@@ -272,7 +276,6 @@ export function useRealtimeInvoices() {
             return prevSummary;
           }
 
-          const baseSales = prevSummary?.totalSales || 0;
           const baseInvoices = prevSummary?.totalInvoices || 0;
           const baseNetSales = prevSummary?.totalNetSales || 0;
           const totalSales = baseSales + invoiceTotal;
@@ -298,18 +301,19 @@ export function useRealtimeInvoices() {
           if (normalizedId != null && !knownInvoices.has(normalizedId)) {
             knownInvoices.add(normalizedId);
           }
-          return prev.map((item) =>
+          const updatedInvoices = prev.map((item) =>
             matchesExistingInvoice(item)
               ? normalizeInvoice({ ...item, ...normalized })
               : item
           );
+          return sortInvoicesByTimestampDesc(updatedInvoices);
         }
 
         if (normalizedId != null) {
           knownInvoices.add(normalizedId);
         }
 
-        return [normalized, ...prev];
+        return sortInvoicesByTimestampDesc([normalized, ...prev]);
       });
     };
 
