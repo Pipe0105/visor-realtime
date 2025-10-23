@@ -22,30 +22,26 @@ export default function RealtimeMetrics({ summary, formatCurrency }) {
     }
 
     const parts = [];
-    if (forecast.remaining != null) {
+    if (forecast.previousTotal) {
       parts.push(
-        `Restante estimado: ${currencyFormatter(
-          Math.max(forecast.remaining, 0)
+        `Total día anterior: ${currencyFormatter(
+          Math.max(forecast.previousTotal, 0)
         )}`
-      );
-    }
-    if (forecast.firstChunkInvoices) {
-      parts.push(
-        `Basado en las primeras ${forecast.firstChunkInvoices} ` +
-          (forecast.firstChunkInvoices === 1 ? "factura" : "facturas")
       );
     }
     if (forecast.historyDays) {
       parts.push(`Historial de ${forecast.historyDays} días`);
     }
-    if (forecast.method === "historical_average") {
-      parts.push("Método: promedio histórico");
-    } else if (forecast.method === "first_chunk_ratio") {
-      parts.push("Método: ritmo de las primeras facturas");
-    } else if (forecast.method === "current_total_only") {
-      parts.push("Método: total actual");
-    } else if (forecast.method === "no_branch_match") {
-      parts.push("Sucursal no encontrada");
+    if (forecast.generatedAt) {
+      const generatedDate = new Date(forecast.generatedAt);
+      if (!Number.isNaN(generatedDate.getTime())) {
+        parts.push(
+          `Actualizado ${generatedDate.toLocaleTimeString("es-CO", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}`
+        );
+      }
     }
 
     return parts.join(" · ");

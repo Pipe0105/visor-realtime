@@ -631,6 +631,10 @@ export function useRealtimeInvoices() {
           firstChunkTotal: toNumber(todayData?.first_chunk_total),
           currentTotal: toNumber(todayData?.current_total),
           invoiceCount: todayData?.invoice_count ?? 0,
+          previousTotal: toNumber(forecastData.previous_total),
+          previousNetTotal: toNumber(forecastData.previous_net_total),
+          previousInvoiceCount: forecastData.previous_invoice_count ?? 0,
+          previousDate: forecastData.previous_date ?? null,
         }
       : null;
 

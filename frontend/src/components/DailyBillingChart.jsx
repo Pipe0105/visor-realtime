@@ -5,7 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Slider, Typography, useTheme } from "@mui/material";
+import { Box, Typography, useTheme } from "@mui/material";
 
 import { LineChart } from "@mui/x-charts/LineChart";
 
@@ -47,8 +47,10 @@ export default function DailyBillingChart({
   formatCurrency,
 }) {
   const containerRef = useRef(null);
+  const dragStateRef = useRef(null);
   const [width, setWidth] = useState(FALLBACK_WIDTH);
   const [visibleDomain, setVisibleDomain] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
   const theme = useTheme();
 
   useEffect(() => {
@@ -161,23 +163,49 @@ export default function DailyBillingChart({
     return { min, max, minDistance };
   }, [dataset]);
 
-  const handleSliderChange = (_, value) => {
-    if (!sliderBounds || !Array.isArray(value)) {
-      return;
+  const chartGeometry = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return null;
     }
 
-    const [rawStart, rawEnd] = value;
-    const clampedStart = Math.min(
-      Math.max(rawStart, sliderBounds.min),
-      sliderBounds.max - sliderBounds.minDistance
-    );
-    const clampedEnd = Math.max(
-      Math.min(rawEnd, sliderBounds.max),
-      clampedStart + sliderBounds.minDistance
+    const chartWidth = Math.max(width, 360);
+    const drawableWidth = Math.max(
+      chartWidth - CHART_MARGIN.left - CHART_MARGIN.right,
+      1
     );
 
-    setVisibleDomain([clampedStart, clampedEnd]);
-  };
+    const chartHeight = DEFAULT_HEIGHT + CHART_MARGIN.top + CHART_MARGIN.bottom;
+
+    return { container, chartWidth, drawableWidth, chartHeight };
+  }, [width]);
+
+  const clampDomain = useCallback(
+    (start, end) => {
+      if (!sliderBounds) {
+        return [start, end];
+      }
+
+      const span = Math.max(end - start, sliderBounds.minDistance);
+      let nextStart = start;
+      let nextEnd = start + span;
+
+      if (nextStart < sliderBounds.min) {
+        nextStart = sliderBounds.min;
+        nextEnd = nextStart + span;
+      }
+
+      if (nextEnd > sliderBounds.max) {
+        nextEnd = sliderBounds.max;
+        nextStart = nextEnd - span;
+      }
+
+      nextEnd = Math.max(nextEnd, nextStart + sliderBounds.minDistance);
+
+      return [nextStart, nextEnd];
+    },
+    [sliderBounds]
+  );
 
   const handleWheel = useCallback(
     (event) => {
@@ -195,8 +223,8 @@ export default function DailyBillingChart({
         return;
       }
 
-      const container = containerRef.current;
-      if (!container) {
+      const geometry = chartGeometry();
+      if (!geometry) {
         return;
       }
 
@@ -207,15 +235,9 @@ export default function DailyBillingChart({
       ) {
         return;
       }
-
+      const { container, drawableWidth, chartHeight } = geometry;
       const { left, top } = container.getBoundingClientRect();
-      const chartWidth = Math.max(width, 360);
-      const drawableWidth = Math.max(
-        chartWidth - CHART_MARGIN.left - CHART_MARGIN.right,
-        1
-      );
-      const chartHeight =
-        DEFAULT_HEIGHT + CHART_MARGIN.top + CHART_MARGIN.bottom;
+
       const pointerY = event.clientY - top;
 
       if (pointerY < 0 || pointerY > chartHeight) {
@@ -246,15 +268,7 @@ export default function DailyBillingChart({
       let nextStart = center - pointerRatio * nextSpan;
       let nextEnd = nextStart + nextSpan;
 
-      if (nextStart < sliderBounds.min) {
-        nextStart = sliderBounds.min;
-        nextEnd = nextStart + nextSpan;
-      }
-
-      if (nextEnd > sliderBounds.max) {
-        nextEnd = sliderBounds.max;
-        nextStart = nextEnd - nextSpan;
-      }
+      [nextStart, nextEnd] = clampDomain(nextStart, nextEnd);
 
       if (
         Math.abs(nextStart - domainStart) < 1 &&
@@ -265,8 +279,139 @@ export default function DailyBillingChart({
 
       setVisibleDomain([nextStart, nextEnd]);
     },
-    [sliderBounds, width, xDomain]
+    [sliderBounds, xDomain, chartGeometry, clampDomain]
   );
+
+  const totalSpan = useMemo(() => {
+    if (!sliderBounds) {
+      return null;
+    }
+    return sliderBounds.max - sliderBounds.min;
+  }, [sliderBounds]);
+
+  const currentSpan = useMemo(() => {
+    if (!xDomain || xDomain.length !== 2) {
+      return null;
+    }
+    const [start, end] = xDomain;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      return null;
+    }
+    return end - start;
+  }, [xDomain]);
+
+  const canPan = useMemo(() => {
+    if (!sliderBounds || !currentSpan || !totalSpan) {
+      return false;
+    }
+    return currentSpan < totalSpan - 1;
+  }, [sliderBounds, currentSpan, totalSpan]);
+
+  const isAtMaxZoom = useMemo(() => {
+    if (!sliderBounds || !currentSpan) {
+      return false;
+    }
+    return currentSpan <= sliderBounds.minDistance + 1;
+  }, [sliderBounds, currentSpan]);
+
+  const handlePointerDown = useCallback(
+    (event) => {
+      if (!canPan || event.button !== 0) {
+        return;
+      }
+
+      const geometry = chartGeometry();
+      if (!geometry || !xDomain) {
+        return;
+      }
+
+      const { container, chartHeight, chartWidth } = geometry;
+      const { left, top } = container.getBoundingClientRect();
+      const pointerY = event.clientY - top;
+      const pointerX = event.clientX - left;
+
+      if (
+        pointerY < 0 ||
+        pointerY > chartHeight ||
+        pointerX < 0 ||
+        pointerX > chartWidth
+      ) {
+        return;
+      }
+
+      dragStateRef.current = {
+        startX: event.clientX,
+        domainStart: xDomain[0],
+        domainEnd: xDomain[1],
+      };
+      setIsDragging(true);
+      event.preventDefault();
+    },
+    [canPan, chartGeometry, xDomain]
+  );
+
+  useEffect(() => {
+    if (!canPan) {
+      dragStateRef.current = null;
+      setIsDragging(false);
+      return () => {};
+    }
+
+    const handlePointerMove = (event) => {
+      if (!dragStateRef.current || !sliderBounds) {
+        return;
+      }
+
+      const geometry = chartGeometry();
+      if (!geometry) {
+        return;
+      }
+
+      const { drawableWidth } = geometry;
+      const { startX, domainStart, domainEnd } = dragStateRef.current;
+      const span = domainEnd - domainStart;
+      if (!Number.isFinite(span) || span <= 0) {
+        return;
+      }
+
+      const deltaX = event.clientX - startX;
+      if (!Number.isFinite(deltaX)) {
+        return;
+      }
+
+      const shift = (-deltaX / drawableWidth) * span;
+      let nextStart = domainStart + shift;
+      let nextEnd = domainEnd + shift;
+
+      [nextStart, nextEnd] = clampDomain(nextStart, nextEnd);
+
+      event.preventDefault();
+
+      setVisibleDomain((prev) => {
+        if (
+          Array.isArray(prev) &&
+          Math.abs(prev[0] - nextStart) < 1 &&
+          Math.abs(prev[1] - nextEnd) < 1
+        ) {
+          return prev;
+        }
+        return [nextStart, nextEnd];
+      });
+    };
+
+    const handlePointerUp = () => {
+      dragStateRef.current = null;
+      setIsDragging(false);
+    };
+
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handlePointerMove);
+      window.removeEventListener("mouseup", handlePointerUp);
+    };
+  }, [canPan, clampDomain, chartGeometry, sliderBounds]);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -299,8 +444,25 @@ export default function DailyBillingChart({
     );
   }
 
+  const showMaxZoomMessage = Boolean(
+    sliderBounds &&
+      totalSpan !== null &&
+      currentSpan !== null &&
+      totalSpan - currentSpan > 1 &&
+      isAtMaxZoom
+  );
+
   return (
-    <Box ref={containerRef} sx={{ width: "100%" }}>
+    <Box
+      ref={containerRef}
+      sx={{
+        width: "100%",
+        cursor: canPan ? (isDragging ? "grabbing" : "grab") : "default",
+        userSelect: isDragging ? "none" : undefined,
+      }}
+      onWheel={handleWheel}
+      onMouseDown={handlePointerDown}
+    >
       <LineChart
         dataset={dataset}
         xAxis={[
@@ -326,8 +488,9 @@ export default function DailyBillingChart({
             area: true,
             color: "#2563eb",
             valueFormatter: formatter,
-            showMark: dataset.length <= 120,
+            showMark: true,
             areaOpacity: 0.14,
+            mark: { size: 6 },
           },
           {
             id: "billing-average",
@@ -367,6 +530,12 @@ export default function DailyBillingChart({
           [`.MuiAreaElement-root`]: {
             fillOpacity: 0.16,
           },
+          [`.MuiMarkElement-root`]: {
+            stroke: theme.palette.primary.main,
+            strokeWidth: 2,
+            fill: theme.palette.common.white,
+            r: 4,
+          },
           [`.MuiChartsAxis-tickLabel`]: {
             fontSize: 12,
             textTransform: "uppercase",
@@ -374,28 +543,20 @@ export default function DailyBillingChart({
           },
         }}
       />
-      {sliderBounds ? (
-        <Box sx={{ mt: 2.5 }}>
-          <Slider
-            value={xDomain ?? [sliderBounds.min, sliderBounds.max]}
-            onChange={handleSliderChange}
-            valueLabelDisplay="auto"
-            valueLabelFormat={(value) => formatTimeLabel(value)}
-            min={sliderBounds.min}
-            max={sliderBounds.max}
-            disableSwap
-            minDistance={sliderBounds.minDistance}
-            sx={{
-              color: theme.palette.primary.main,
-              "& .MuiSlider-valueLabel": {
-                backgroundColor: theme.palette.background.paper,
-                color: theme.palette.text.primary,
-                border: `1px solid ${theme.palette.divider}`,
-              },
-            }}
-            aria-label="Seleccionar rango de tiempo"
-          />
-        </Box>
+      {showMaxZoomMessage ? (
+        <Typography
+          variant="caption"
+          sx={{
+            display: "block",
+            mt: 2,
+            color: theme.palette.text.secondary,
+            fontWeight: 500,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+          }}
+        >
+          Alcanzaste el nivel máximo de zoom.
+        </Typography>
       ) : null}
       <Typography
         variant="caption"
@@ -410,8 +571,8 @@ export default function DailyBillingChart({
         }}
       >
         Pasa el cursor sobre cada punto para ver la factura y su desviación del
-        promedio. Usa el control inferior o la rueda del mouse para acercar o
-        desplazar la ventana temporal.
+        promedio. Usa la rueda del mouse para acercar o alejar y arrastra sobre
+        la gráfica para desplazarte sin perder el nivel de zoom.
       </Typography>
     </Box>
   );

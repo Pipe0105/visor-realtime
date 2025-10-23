@@ -330,30 +330,32 @@ def _resolve_branch_filters(db: Session, branch: str):
     normalized_branch = (branch or "all").strip()
 
     if normalized_branch.lower() == "all":
-        return {"filters": [], "label": "all"}
+        return {"filters": [], "summary_filters": [], "label": "all"}
+
 
     if normalized_branch.upper() == "FLO":
-        return {"filters": [Invoice.branch_id.is_(None)], "label": "FLO"}
+        return {
+            "filters": [Invoice.branch_id.is_(None)],
+            "summary_filters": [DailySalesSummary.branch_id.is_(None)],
+            "label": "FLO",
+        }
 
     try:
         branch_uuid = uuid.UUID(normalized_branch)
         return {
             "filters": [Invoice.branch_id == branch_uuid],
+             "summary_filters": [DailySalesSummary.branch_id == branch_uuid],
             "label": str(branch_uuid),
         }
     except (ValueError, AttributeError):
         branch_match = (
             db.query(Branch)
-            .filter(func.lower(Branch.code) == normalized_branch.lower())
-            .first()
-        )
-        if branch_match:
-            return {
-                "filters": [Invoice.branch_id == branch_match.id],
+                "summary_filters": [DailySalesSummary.branch_id == branch_match.id],
                 "label": branch_match.code or str(branch_match.id),
             }
 
-    return {"filters": None, "label": normalized_branch}
+    return {"filters": None, "summary_filters": None, "label": normalized_branch}
+
 
 
 def _float_or_zero(value):
@@ -367,14 +369,7 @@ def _float_or_zero(value):
 def get_today_forecast(
     branch: str = Query("all"),
     history_days: int = Query(DEFAULT_FORECAST_HISTORY_DAYS, ge=3, le=90),
-    db: Session = Depends(get_db),
-):
-    """Devuelve un pronóstico estimado de ventas para el día en curso."""
-
-    ensure_daily_reset(db)
-
-    resolution = _resolve_branch_filters(db, branch)
-    branch_filters = resolution["filters"]
+    summary_filters = resolution["summary_filters"]
     branch_label = resolution["label"]
 
     if branch_filters is None:
@@ -401,11 +396,11 @@ def get_today_forecast(
                 "generated_at": datetime.utcnow().isoformat() + "Z",
             },
         }
-
     now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow_start = today_start + timedelta(days=1)
     history_start = today_start - timedelta(days=history_days)
+    yesterday = today_start.date() - timedelta(days=1)
 
     history_filters = [
         Invoice.created_at >= history_start,
@@ -421,6 +416,31 @@ def get_today_forecast(
         today_filters.extend(branch_filters)
 
     day_expression = func.date_trunc("day", Invoice.created_at)
+
+    yesterday_summary_query = db.query(
+        func.coalesce(func.sum(DailySalesSummary.total_sales), 0).label("total_sales"),
+        func.coalesce(func.sum(DailySalesSummary.total_net_sales), 0).label(
+            "net_sales"
+        ),
+        func.coalesce(func.sum(DailySalesSummary.total_invoices), 0).label(
+            "invoice_count"
+        ),
+    ).filter(DailySalesSummary.summary_date == yesterday)
+
+    if summary_filters:
+        yesterday_summary_query = yesterday_summary_query.filter(*summary_filters)
+
+    yesterday_summary = yesterday_summary_query.one_or_none()
+
+    previous_total = _float_or_zero(
+        yesterday_summary.total_sales if yesterday_summary else 0
+    )
+    previous_net_total = _float_or_zero(
+        yesterday_summary.net_sales if yesterday_summary else 0
+    )
+    previous_invoice_count = (
+        int(yesterday_summary.invoice_count or 0) if yesterday_summary else 0
+    )
 
     history_subquery = (
         db.query(
@@ -447,12 +467,6 @@ def get_today_forecast(
             history_subquery.c.day.label("day"),
             func.count().label("invoice_count"),
             func.coalesce(func.sum(history_subquery.c.invoice_total), 0).label(
-                "total_sales"
-            ),
-            func.coalesce(func.sum(first_chunk_case), 0).label("first_chunk_total"),
-        )
-        .group_by(history_subquery.c.day)
-        .order_by(history_subquery.c.day.desc())
         .limit(history_days)
         .all()
     )
@@ -535,8 +549,8 @@ def get_today_forecast(
         forecast_total = current_total
         forecast_method = "current_total_only"
 
-    if forecast_total < current_total:
-        forecast_total = current_total
+    if previous_total > 0 and forecast_total < previous_total:
+        forecast_total = previous_total
 
     remaining_total = max(forecast_total - current_total, 0)
 
@@ -572,6 +586,10 @@ def get_today_forecast(
             "history_average_total": average_daily_total,
             "history_average_first_chunk": average_first_chunk_total,
             "generated_at": datetime.utcnow().isoformat() + "Z",
+            "previous_total": previous_total,
+            "previous_net_total": previous_net_total,
+            "previous_invoice_count": previous_invoice_count,
+            "previous_date": yesterday.isoformat(),
         },
     }
 

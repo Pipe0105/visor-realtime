@@ -45,6 +45,10 @@ export default function RealtimeForecastPanel({
         historyDays: forecastRaw.history_days ?? 0,
         historySamples: forecastRaw.history_samples ?? 0,
         generatedAt: forecastRaw.generated_at ?? null,
+        previousTotal: forecastRaw.previous_total ?? 0,
+        previousNetTotal: forecastRaw.previous_net_total ?? 0,
+        previousInvoiceCount: forecastRaw.previous_invoice_count ?? 0,
+        previousDate: forecastRaw.previous_date ?? null,
       }
     : null;
 
@@ -80,6 +84,22 @@ export default function RealtimeForecastPanel({
       }),
     []
   );
+
+  const previousDateLabel = useMemo(() => {
+    if (!forecast?.previousDate) {
+      return null;
+    }
+    try {
+      const parsed = new Date(forecast.previousDate);
+      if (!Number.isNaN(parsed.getTime())) {
+        return historyFormatter.format(parsed);
+      }
+    } catch (error) {
+      return forecast.previousDate;
+    }
+
+    return forecast.previousDate;
+  }, [forecast?.previousDate, historyFormatter]);
 
   if (!forecast) {
     return null;
@@ -121,6 +141,15 @@ export default function RealtimeForecastPanel({
               </dt>
               <dd className="text-base font-medium text-slate-900 dark:text-foreground">
                 {currencyFormatter(Math.max(forecast.remaining || 0, 0))}
+              </dd>
+            </div>
+            <div className="space-y-1">
+              <dt className="font-semibold text-slate-600 dark:text-slate-300">
+                Total día anterior
+              </dt>
+              <dd className="text-base font-medium text-slate-900 dark:text-foreground">
+                {currencyFormatter(Math.max(forecast.previousTotal || 0, 0))}
+                {previousDateLabel ? ` · ${previousDateLabel}` : ""}
               </dd>
             </div>
             <div className="space-y-1">
