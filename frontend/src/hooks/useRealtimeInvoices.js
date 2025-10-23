@@ -57,7 +57,6 @@ export function useRealtimeInvoices() {
       const data = await res.json();
 
       if (Array.isArray(data)) {
-        const normalizedInvoices = data.map(normalizeInvoice);
         const normalizedInvoices = data
           .map(normalizeInvoice)
           .filter(isInvoiceRecord);
@@ -219,25 +218,27 @@ export function useRealtimeInvoices() {
       }
       console.log("📩 Mensaje recibido:", data);
 
-      if (!isInvoiceRecord(normalized)) {
-        console.warn(
-          "⚠️ Mensaje de WebSocket ignorado tras normalizar la factura",
-          data
-        );
-        return;
-      }
-
-      const today = new Date().toISOString().slice(0, 10);
-
       if (!isInvoiceRecord(data)) {
         console.warn(
           "⚠️ Mensaje de WebSocket ignorado: no contiene una factura válida",
+
           data
         );
         return;
       }
 
       const normalized = normalizeInvoice(data);
+
+      if (!isInvoiceRecord(normalized)) {
+        console.warn(
+          "⚠️ Mensaje de WebSocket ignorado tras normalizar la factura",
+
+          data
+        );
+        return;
+      }
+
+      const today = new Date().toISOString().slice(0, 10);
 
       const messageDay =
         getInvoiceDay(normalized.invoice_date) ||
