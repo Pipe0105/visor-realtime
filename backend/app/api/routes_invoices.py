@@ -529,7 +529,8 @@ def get_today_forecast(
     
     seconds_since_day_start = func.extract(
         "epoch",
-        Invoice.created_at - func.date_trunch("day", Invoice.created_at),
+        Invoice.created_at - func.date_trunc("day", Invoice.created_at),
+
     )
 
     history_subquery = (
@@ -557,7 +558,7 @@ def get_today_forecast(
         (
             history_subquery.c.seconds_since_day_start
             <= literal(current_day_elapsed_seconds),
-            history_subquery.c.invoice.total,
+            history_subquery.c.invoice_total,
         ),
         else_=0,
     )

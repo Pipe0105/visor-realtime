@@ -34,7 +34,10 @@ export default function MetricCard({
           ) : null}
         </div>
         <CardTitle
-          className={cn("text-3xl font-semibold tracking-tight", valueColor)}
+          className={cn(
+            "text-2xl font-semibold tracking-tight text-center",
+            valueColor
+          )}
         >
           {value}
         </CardTitle>

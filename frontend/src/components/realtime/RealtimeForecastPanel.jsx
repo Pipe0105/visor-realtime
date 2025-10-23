@@ -135,7 +135,7 @@ export default function RealtimeForecastPanel({
               <dt className="font-semibold text-slate-600 dark:text-slate-300">
                 Pronóstico del día
               </dt>
-              <dd className="text-base font-medium text-slate-900 dark:text-foreground">
+              <dd className="text-base text-slate-900 dark:text-foreground">
                 {currencyFormatter(forecast.total || 0)}
               </dd>
             </div>

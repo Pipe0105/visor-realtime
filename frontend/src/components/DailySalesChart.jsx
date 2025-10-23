@@ -139,7 +139,9 @@ function DailySalesTooltipContent(props) {
               display: "block",
               mt: 0.5,
               fontWeight: 600,
-              color: isPositive ? "#16a34a" : "#dc2626",
+              color: isPositive
+                ? "hsl(var(--chart-positive))"
+                : "hsl(var(--chart-negative))",
             }}
           >
             Variación vs. día anterior: {deltaLabel}
@@ -247,7 +249,7 @@ export default function DailySalesChart({ data }) {
                   label: "Ventas diarias",
                   curve: "monotoneX",
                   area: true,
-                  color: "#22c55e",
+                  color: "hsl(var(--chart-positive-soft))",
                   showMark: dataset.length <= 30,
                   valueFormatter: (value) =>
                     currencyFormatter.format(Number(value) || 0),
@@ -258,7 +260,7 @@ export default function DailySalesChart({ data }) {
                   dataKey: "cumulative",
                   label: "Ventas acumuladas",
                   curve: "catmullRom",
-                  color: "#0ea5e9",
+                  color: "hsl(var(--chart-series-secondary))",
                   showMark: dataset.length <= 30,
                   valueFormatter: (value) =>
                     currencyFormatter.format(Number(value) || 0),

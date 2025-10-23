@@ -5,7 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Typography, useTheme } from "@mui/material";
+import { Box, Typography } from "@mui/material";
 import { ChartsTooltipPaper } from "@mui/x-charts/ChartsTooltip/ChartsTooltipTable";
 import { LineChart } from "@mui/x-charts/LineChart";
 
@@ -23,6 +23,17 @@ const axisCurrencyFormatter = new Intl.NumberFormat("es-CO", {
   minimumFractionDigits: 0,
   maximumFractionDigits: 0,
 });
+
+const CHART_COLOR_TOKENS = {
+  textMuted: "hsl(var(--muted-foreground))",
+  positive: "hsl(var(--chart-positive))",
+  negative: "hsl(var(--chart-negative))",
+  seriesPrimary: "hsl(var(--chart-series-primary))",
+  seriesAverage: "hsl(var(--chart-series-average))",
+  markStroke: "hsl(var(--chart-series-primary))",
+  markFill: "hsl(var(--card))",
+};
+
 function getFormatter(formatCurrency) {
   if (typeof formatCurrency === "function") {
     return (value) => formatCurrency(Number(value) || 0);
@@ -74,8 +85,6 @@ function BillingAxisTooltipContent(props) {
     dataset = [],
     currencyFormatter,
   } = props;
-
-  const theme = useTheme();
 
   if (dataIndex == null) {
     return null;
@@ -130,7 +139,7 @@ function BillingAxisTooltipContent(props) {
         <Typography
           variant="caption"
           sx={{
-            color: theme.palette.text.secondary,
+            color: CHART_COLOR_TOKENS.textMuted,
             display: "block",
             mt: 0.5,
             letterSpacing: "0.02em",
@@ -159,8 +168,8 @@ function BillingAxisTooltipContent(props) {
               fontWeight: 600,
               color:
                 Number(bucket.deviation) >= 0
-                  ? theme.palette.success.main
-                  : theme.palette.error.main,
+                  ? CHART_COLOR_TOKENS.positive
+                  : CHART_COLOR_TOKENS.negative,
             }}
           >
             {formatSignedCurrency(
@@ -203,7 +212,7 @@ function BillingAxisTooltipContent(props) {
                   <Typography
                     variant="caption"
                     sx={{
-                      color: theme.palette.text.secondary,
+                      color: CHART_COLOR_TOKENS.textMuted,
                       letterSpacing: "0.02em",
                     }}
                   >
@@ -231,8 +240,8 @@ function BillingAxisTooltipContent(props) {
                           fontWeight: 600,
                           color:
                             deviation >= 0
-                              ? theme.palette.success.main
-                              : theme.palette.error.main,
+                              ? CHART_COLOR_TOKENS.positive
+                              : CHART_COLOR_TOKENS.negative,
                         }}
                       >
                         {formatSignedCurrency(deviation, formatCurrency)}
@@ -809,7 +818,7 @@ export default function DailyBillingChart({
             label: `Facturación (${BUCKET_INTERVAL_MINUTES} min)`,
             curve: chartDataset.length > 480 ? "linear" : "catmullRom",
             area: chartDataset.length <= 1600,
-            color: "#2563eb",
+            color: CHART_COLOR_TOKENS.seriesPrimary,
             valueFormatter: formatter,
             showMark: chartDataset.length <= 240,
             areaOpacity: 0.14,
@@ -821,7 +830,7 @@ export default function DailyBillingChart({
             label: `Promedio (${BUCKET_INTERVAL_MINUTES} min)`,
             curve: "linear",
             showMark: false,
-            color: "#f97316",
+            color: CHART_COLOR_TOKENS.seriesAverage,
             valueFormatter: formatter,
           },
         ]}
@@ -860,9 +869,9 @@ export default function DailyBillingChart({
             fillOpacity: 0.16,
           },
           [`.MuiMarkElement-root`]: {
-            stroke: theme.palette.primary.main,
+            stroke: "hsl(var(--primary))",
             strokeWidth: 2,
-            fill: theme.palette.common.white,
+            fill: "hsl(var(--card))",
             r: 4,
           },
           [`.MuiChartsAxis-tickLabel`]: {
@@ -879,7 +888,7 @@ export default function DailyBillingChart({
           sx={{
             display: "block",
             mt: 2,
-            color: theme.palette.text.secondary,
+            color: CHART_COLOR_TOKENS.textMuted,
             fontWeight: 500,
             letterSpacing: "0.06em",
             textTransform: "uppercase",
@@ -893,7 +902,7 @@ export default function DailyBillingChart({
         sx={{
           display: "block",
           mt: 1.5,
-          color: theme.palette.text.secondary,
+          color: CHART_COLOR_TOKENS.textMuted,
 
           fontSize: "0.7rem",
           letterSpacing: "0.08em",

@@ -35,26 +35,31 @@ function formatHourRange(hour) {
 function getCellBackground(value, maxValue) {
   if (!maxValue || maxValue <= 0 || value <= 0) {
     return {
-      backgroundColor: "rgba(148, 163, 184, 0.15)",
+      backgroundColor: "hsl(var(--chart-heatmap-min) / 0.28)",
+      borderColor: "hsl(var(--chart-heatmap-track) / 0.55)",
     };
   }
 
   const intensity = Math.min(value / maxValue, 1);
-  const alpha = 0.2 + intensity * 0.6;
+  const backgroundAlpha = Math.min(0.9, 0.28 + intensity * 0.54);
+  const borderAlpha = Math.max(0.35, backgroundAlpha * 0.75);
   return {
-    backgroundColor: `rgba(16, 185, 129, ${alpha})`,
+    backgroundColor: `hsl(var(--chart-heatmap-base) / ${backgroundAlpha.toFixed(
+      2
+    )})`,
+    borderColor: `hsl(var(--chart-heatmap-track) / ${borderAlpha.toFixed(2)})`,
   };
 }
 
-function getCellTextColor(value, maxValue) {
+function getCellTextStyle(value, maxValue) {
   if (!maxValue || maxValue <= 0 || value <= 0) {
-    return "text-slate-600 dark:text-slate-400";
+    return { color: "hsl(var(--chart-heatmap-contrast-low))" };
   }
 
   const intensity = Math.min(value / maxValue, 1);
-  return intensity > 0.6
-    ? "text-emerald-50"
-    : "text-emerald-900 dark:text-emerald-100";
+  return intensity > 0.65
+    ? { color: "hsl(var(--chart-heatmap-contrast-high))" }
+    : { color: "hsl(var(--chart-heatmap-contrast-low))" };
 }
 
 export default function SalesHeatmap({ data }) {
@@ -128,7 +133,7 @@ export default function SalesHeatmap({ data }) {
                           value.total,
                           maxValue
                         );
-                        const textClass = getCellTextColor(
+                        const textStyle = getCellTextStyle(
                           value.total,
                           maxValue
                         );
@@ -137,11 +142,18 @@ export default function SalesHeatmap({ data }) {
                         )} · ${currencyFormatter.format(value.total)} · ${
                           value.count
                         } factura${value.count === 1 ? "" : "s"}`;
+                        const cellStyle = {
+                          backgroundColor: backgroundStyle.backgroundColor,
+                          borderColor:
+                            backgroundStyle.borderColor ||
+                            "hsl(var(--chart-heatmap-track) / 0.55)",
+                          color: textStyle.color,
+                        };
                         return (
                           <div
                             key={`${row.key}-${value.hour}`}
-                            className={`flex h-14 items-center justify-center rounded-md border border-slate-200 px-2 text-center text-[0.7rem] font-semibold transition dark:border-slate-800 ${textClass}`}
-                            style={backgroundStyle}
+                            className="flex h-14 items-center justify-center rounded-md border px-2 text-center text-[0.7rem] font-semibold transition"
+                            style={cellStyle}
                             title={tooltip}
                           >
                             {value.total > 0
@@ -155,10 +167,23 @@ export default function SalesHeatmap({ data }) {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
-              <span className="flex h-3 w-12 items-center justify-center rounded-full bg-slate-200 dark:bg-slate-800" />
+            <div
+              className="flex items-center gap-3 text-[11px]"
+              style={{ color: "var(--chart-axis-label)" }}
+            >
+              <span
+                className="flex h-3 w-12 items-center justify-center rounded-full"
+                style={{
+                  backgroundColor: "hsl(var(--chart-heatmap-min) / 0.4)",
+                }}
+              />{" "}
               <span>Bajas ventas</span>
-              <span className="flex h-3 w-12 items-center justify-center rounded-full bg-emerald-300" />
+              <span
+                className="flex h-3 w-12 items-center justify-center rounded-full"
+                style={{
+                  backgroundColor: "hsl(var(--chart-heatmap-base) / 0.8)",
+                }}
+              />{" "}
               <span>Altas ventas</span>
             </div>
           </div>
