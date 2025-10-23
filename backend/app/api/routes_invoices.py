@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import case, func, select
 from datetime import datetime, timedelta
+from math import fsum
 from app.database import get_db
 from app.models.invoice import Invoice
 from app.models.invoice_item import InvoiceItem
@@ -19,7 +20,7 @@ from app.models.daily_summary import DailySalesSummary
 
 router = APIRouter()
 
-FIRST_CHUNK_INVOICES = 10
+FIRST_CHUNK_INVOICES = 100
 DEFAULT_FORECAST_HISTORY_DAYS = 14
 
 
@@ -376,6 +377,73 @@ def _float_or_zero(value):
     except (TypeError, ValueError):
         return 0.0
 
+def _determinant_3x3(a11, a12, a13, a21, a22, a23, a31, a32, a33):
+    return (
+        a11 * (a22 * a33 - a23 * a32)
+        - a12 * (a21 * a33 - a23 * a31)
+        + a13 * (a21 * a32 - a22 * a31)
+    )
+
+
+def _linear_regression_coefficients(samples):
+    if len(samples) < 3:
+        return None
+
+    sum_x1 = fsum(sample[0] for sample in samples)
+    sum_x2 = fsum(sample[1] for sample in samples)
+    sum_y = fsum(sample[2] for sample in samples)
+
+    sum_x1x1 = fsum(sample[0] * sample[0] for sample in samples)
+    sum_x2x2 = fsum(sample[1] * sample[1] for sample in samples)
+    sum_x1x2 = fsum(sample[0] * sample[1] for sample in samples)
+
+    sum_x1y = fsum(sample[0] * sample[2] for sample in samples)
+    sum_x2y = fsum(sample[1] * sample[2] for sample in samples)
+
+    n = float(len(samples))
+
+    a11 = n
+    a12 = sum_x1
+    a13 = sum_x2
+    a21 = sum_x1
+    a22 = sum_x1x1
+    a23 = sum_x1x2
+    a31 = sum_x2
+    a32 = sum_x1x2
+    a33 = sum_x2x2
+
+    determinant = _determinant_3x3(
+        a11, a12, a13,
+        a21, a22, a23,
+        a31, a32, a33,
+    )
+
+    if abs(determinant) < 1e-9:
+        return None
+
+    det_b0 = _determinant_3x3(
+        sum_y, a12, a13,
+        sum_x1y, a22, a23,
+        sum_x2y, a32, a33,
+    )
+    det_b1 = _determinant_3x3(
+        a11, sum_y, a13,
+        a21, sum_x1y, a23,
+        a31, sum_x2y, a33,
+    )
+    det_b2 = _determinant_3x3(
+        a11, a12, sum_y,
+        a21, a22, sum_x1y,
+        a31, a32, sum_x2y,
+    )
+
+    intercept = det_b0 / determinant
+    coef_first_chunk = det_b1 / determinant
+    coef_previous_total = det_b2 / determinant
+
+    return intercept, coef_first_chunk, coef_previous_total
+
+
 
 @router.get("/today/forecast")
 def get_today_forecast(
@@ -494,7 +562,7 @@ def get_today_forecast(
         .all()
     )
 
-    history_entries = []
+    history_data = []
     ratio_samples = []
     total_accumulator = 0.0
     first_chunk_accumulator = 0.0
@@ -511,11 +579,12 @@ def get_today_forecast(
             ratio = total_sales / first_chunk_total
             ratio_samples.append((ratio, total_sales))
 
-        history_entries.append(
+        history_data.append(
             {
                 "date": day_value.isoformat()
                 if hasattr(day_value, "isoformat")
                 else str(day_value),
+                "date": day_value,
                 "total": total_sales,
                 "first_chunk_total": first_chunk_total,
                 "invoice_count": invoice_count,
@@ -537,7 +606,45 @@ def get_today_forecast(
         if current_day == yesterday:
             yesterday_first_chunk_total = first_chunk_total
 
-    history_entries.sort(key=lambda entry: entry["date"])
+    history_data.sort(key=lambda entry: entry["date"])
+
+    history_entries = []
+    regression_samples = []
+    totals_by_date = {}
+
+    for entry in history_data:
+        entry_date = entry["date"]
+        if isinstance(entry_date, datetime):
+            date_value = entry_date.date()
+        else:
+            date_value = entry_date
+
+        previous_day = date_value - timedelta(days=1)
+        previous_total_value = totals_by_date.get(previous_day)
+
+        history_entries.append(
+            {
+                "date": entry_date.isoformat()
+                if hasattr(entry_date, "isoformat")
+                else str(entry_date),
+                "total": entry["total"],
+                "first_chunk_total": entry["first_chunk_total"],
+                "invoice_count": entry["invoice_count"],
+                "ratio": entry["ratio"],
+                "previous_total": previous_total_value,
+            }
+        )
+
+        if previous_total_value is not None:
+            regression_samples.append(
+                (
+                    entry["first_chunk_total"],
+                    previous_total_value,
+                    entry["total"],
+                )
+            )
+
+        totals_by_date[date_value] = entry["total"]
 
     weighted_ratio_sum = sum(ratio * weight for ratio, weight in ratio_samples)
     weight_total = sum(weight for _, weight in ratio_samples)
@@ -575,12 +682,34 @@ def get_today_forecast(
     current_total = _float_or_zero(today_totals_row.current_total)
     current_net_total = _float_or_zero(today_totals_row.current_net_total)
     current_invoice_count = int(today_totals_row.invoice_count or 0)
+    
+    regression_coefficients = _linear_regression_coefficients(regression_samples)
+    regression_prediction = None
+    if (
+        regression_coefficients is not None
+        and first_chunk_total_today > 0
+    ):
+        intercept, coef_first_chunk, coef_previous_total = regression_coefficients
+        regression_prediction = (
+            intercept
+            + coef_first_chunk * first_chunk_total_today
+            + coef_previous_total * previous_total
+        )
 
     forecast_total = current_total
     forecast_method = "current_total_only"
     forecast_ratio = average_ratio
 
     if (
+        regression_prediction is not None
+        and regression_prediction > 0
+    ):
+        regression_total = max(regression_prediction, current_total)
+        forecast_total = regression_total
+        forecast_method = "linear_regression"
+        if first_chunk_total_today > 0:
+            forecast_ratio = forecast_total / first_chunk_total_today
+    elif (
         first_chunk_total_today > 0
         and previous_total > 0
         and yesterday_first_chunk_total > 0
