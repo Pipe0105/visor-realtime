@@ -19,7 +19,7 @@ from app.models.daily_summary import DailySalesSummary
 
 router = APIRouter()
 
-FIRST_CHUNK_INVOICES = 100
+FIRST_CHUNK_INVOICES = 10
 DEFAULT_FORECAST_HISTORY_DAYS = 14
 
 
@@ -498,6 +498,7 @@ def get_today_forecast(
     ratio_samples = []
     total_accumulator = 0.0
     first_chunk_accumulator = 0.0
+    yesterday_first_chunk_total = 0.0
 
     for row in history_rows:
         day_value = row.day.date() if hasattr(row.day, "date") else row.day
@@ -524,6 +525,17 @@ def get_today_forecast(
 
         total_accumulator += total_sales
         first_chunk_accumulator += first_chunk_total
+        
+        if hasattr(day_value, "date"):
+            current_day = day_value.date()
+        else:
+            try:
+                current_day = datetime.fromisoformat(str(day_value)).date()
+            except (TypeError, ValueError, AttributeError):
+                current_day = day_value
+                
+        if current_day == yesterday:
+            yesterday_first_chunk_total = first_chunk_total
 
     history_entries.sort(key=lambda entry: entry["date"])
 
@@ -564,18 +576,33 @@ def get_today_forecast(
     current_net_total = _float_or_zero(today_totals_row.current_net_total)
     current_invoice_count = int(today_totals_row.invoice_count or 0)
 
-    forecast_method = "historical_average"
-    if first_chunk_total_today > 0 and ratio_samples:
+    forecast_total = current_total
+    forecast_method = "current_total_only"
+    forecast_ratio = average_ratio
+
+    if (
+        first_chunk_total_today > 0
+        and previous_total > 0
+        and yesterday_first_chunk_total > 0
+    ):
+        forecast_ratio = previous_total / yesterday_first_chunk_total
+        forecast_total = first_chunk_total_today * forecast_ratio
+        forecast_method = "previous_day_first_chunk_ratio"
+    elif first_chunk_total_today > 0 and ratio_samples: 
         forecast_total = first_chunk_total_today * average_ratio
         forecast_method = "first_chunk_ratio"
     elif total_accumulator > 0 and history_entries:
         forecast_total = total_accumulator / len(history_entries)
-    else:
-        forecast_total = current_total
-        forecast_method = "current_total_only"
+        forecast_method = "historical_average"
 
-    if previous_total > 0 and forecast_total < previous_total:
+    if (
+        previous_total > 0
+        and forecast_total < previous_total
+        and first_chunk_total_today == 0
+    ):
         forecast_total = previous_total
+        forecast_method = "previous_total_only"
+        forecast_ratio = 1.0
 
     remaining_total = max(forecast_total - current_total, 0)
 
@@ -605,7 +632,7 @@ def get_today_forecast(
             "total": forecast_total,
             "remaining": remaining_total,
             "method": forecast_method,
-            "ratio": average_ratio,
+            "ratio": forecast_ratio,
             "history_days": len(history_entries),
             "history_samples": len(ratio_samples),
             "history_average_total": average_daily_total,
