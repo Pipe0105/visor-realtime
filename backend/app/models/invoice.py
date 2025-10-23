@@ -23,5 +23,6 @@ class Invoice(Base):
         back_populates="invoice",
         cascade="all, delete-orphan",
         lazy="selectin",
+        order_by="InvoiceItem.line_number",
     )
     invoice_date = Column(DateTime(timezone=True)) # Fecha dentro de la factura

@@ -594,8 +594,30 @@ export function useRealtimeInvoices() {
       try {
         const res = await apiFetch(`/invoices/${invoice_number}/items`);
         const data = await res.json();
-        if (data.items) {
-          setInvoicesItems(data.items);
+        if (Array.isArray(data.items)) {
+          const sortedItems = [...data.items].sort((a, b) => {
+            const lineA = Number.isFinite(Number(a?.line_number))
+              ? Number(a.line_number)
+              : null;
+            const lineB = Number.isFinite(Number(b?.line_number))
+              ? Number(b.line_number)
+              : null;
+
+            if (lineA != null && lineB != null) {
+              return lineA - lineB;
+            }
+            if (lineA != null) return -1;
+            if (lineB != null) return 1;
+
+            const descriptionA = a?.description ?? "";
+            const descriptionB = b?.description ?? "";
+
+            return descriptionA.localeCompare(descriptionB, "es", {
+              sensitivity: "base",
+            });
+          });
+
+          setInvoicesItems(sortedItems);
         } else {
           setInvoicesItems([]);
         }
@@ -814,6 +836,104 @@ export function useRealtimeInvoices() {
     });
     return Array.from(branchSet).sort((a, b) => a.localeCompare(b));
   }, [messages]);
+
+  const hourlySalesHeatmap = useMemo(() => {
+    const branchFilter = filters.branch ?? "all";
+    const hours = Array.from({ length: 24 }, (_, index) => index);
+    const bucketMap = new Map();
+    let maxTotal = 0;
+    let consideredInvoices = 0;
+
+    messages.forEach((msg) => {
+      const branchKey = msg.branch || "FLO";
+      if (branchFilter !== "all" && branchKey !== branchFilter) {
+        return;
+      }
+
+      const rawTimestamp =
+        msg.invoice_date ?? msg.timestamp ?? msg.created_at ?? null;
+      const parsed = parseInvoiceTimestamp(rawTimestamp);
+      if (!parsed) {
+        return;
+      }
+
+      consideredInvoices += 1;
+
+      const hourBucket = parsed.getHours();
+      const totalValue = toNumber(msg.total);
+      const baseKey = `${branchKey}::${hourBucket}`;
+      const aggregateKey = `__all__::${hourBucket}`;
+
+      const updateBucket = (key) => {
+        const entry = bucketMap.get(key) || { total: 0, count: 0 };
+        entry.total += totalValue;
+        entry.count += 1;
+        bucketMap.set(key, entry);
+        if (entry.total > maxTotal) {
+          maxTotal = entry.total;
+        }
+      };
+
+      updateBucket(baseKey);
+      if (branchFilter === "all") {
+        updateBucket(aggregateKey);
+      }
+    });
+
+    const targetBranches =
+      branchFilter === "all"
+        ? availableBranches
+        : availableBranches.includes(branchFilter)
+        ? [branchFilter]
+        : [];
+
+    const includeAggregateRow =
+      branchFilter === "all" && availableBranches.length > 1;
+
+    const rows = [];
+
+    if (includeAggregateRow) {
+      rows.push({
+        key: "__all__",
+        label: "Todas las sucursales",
+        values: hours.map((hour) => {
+          const entry = bucketMap.get(`__all__::${hour}`) || {
+            total: 0,
+            count: 0,
+          };
+          if (entry.total > maxTotal) {
+            maxTotal = entry.total;
+          }
+          return { hour, total: entry.total, count: entry.count };
+        }),
+      });
+    }
+
+    targetBranches.forEach((branch) => {
+      rows.push({
+        key: branch,
+        label: branch.toUpperCase(),
+        values: hours.map((hour) => {
+          const entry = bucketMap.get(`${branch}::${hour}`) || {
+            total: 0,
+            count: 0,
+          };
+          if (entry.total > maxTotal) {
+            maxTotal = entry.total;
+          }
+          return { hour, total: entry.total, count: entry.count };
+        }),
+      });
+    });
+
+    return {
+      hours,
+      rows,
+      maxTotal,
+      totalInvoices: consideredInvoices,
+      hasData: consideredInvoices > 0,
+    };
+  }, [availableBranches, filters.branch, messages]);
 
   const totalsRange = useMemo(() => {
     if (messages.length === 0) {
@@ -1103,5 +1223,6 @@ export function useRealtimeInvoices() {
     currentPage,
     setCurrentPage,
     salesForecast,
+    hourlySalesHeatmap,
   };
 }

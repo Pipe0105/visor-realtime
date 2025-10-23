@@ -1,6 +1,7 @@
 import React from "react";
 import DailyBillingChart from "../DailyBillingChart";
 import DailySalesChart from "../DailySalesChart";
+import SalesHeatmap from "../SalesHeatmap";
 import { Badge } from "../badge";
 import {
   Card,
@@ -14,6 +15,7 @@ export default function RealtimeHistorySection({
   billingSeries,
   latestBillingPoint,
   formatCurrency,
+  hourlySalesHeatmap,
   dailySalesSeries,
 }) {
   return (
@@ -53,6 +55,9 @@ export default function RealtimeHistorySection({
       </Card>
       <div className="mx-auto w-full max-w-5xl">
         <DailySalesChart data={dailySalesSeries} />
+      </div>
+      <div className="mx-auto w-full max-w-5xl">
+        <SalesHeatmap data={hourlySalesHeatmap} />
       </div>
     </section>
   );

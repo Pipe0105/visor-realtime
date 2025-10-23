@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -18,6 +18,34 @@ export default function InvoiceDetails({
   formatCurrency,
 }) {
   const currencyFormatter = formatCurrency ?? formatCurrencyDefault;
+
+  const sortedItems = useMemo(() => {
+    if (!Array.isArray(invoiceItems)) {
+      return [];
+    }
+
+    return [...invoiceItems].sort((a, b) => {
+      const lineA = Number.isFinite(Number(a?.line_number))
+        ? Number(a.line_number)
+        : null;
+      const lineB = Number.isFinite(Number(b?.line_number))
+        ? Number(b.line_number)
+        : null;
+
+      if (lineA != null && lineB != null) {
+        return lineA - lineB;
+      }
+      if (lineA != null) return -1;
+      if (lineB != null) return 1;
+
+      const descriptionA = a?.description ?? "";
+      const descriptionB = b?.description ?? "";
+
+      return descriptionA.localeCompare(descriptionB, "es", {
+        sensitivity: "base",
+      });
+    });
+  }, [invoiceItems]);
 
   return (
     <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70 lg:flex lg:h-[calc(100vh-7rem)] lg:max-h-[calc(100vh-7rem)] lg:flex-col lg:overflow-hidden">
@@ -66,7 +94,7 @@ export default function InvoiceDetails({
               <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
                 Cargando ítems…
               </div>
-            ) : invoiceItems.length > 0 ? (
+            ) : sortedItems.length > 0 ? (
               <div className="space-y-4">
                 <div className="hidden grid-cols-12 gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 dark:text-slate-400 sm:grid">
                   <span className="sm:col-span-6">Producto</span>
@@ -75,34 +103,52 @@ export default function InvoiceDetails({
                   <span className="text-right sm:col-span-2">Subtotal</span>
                 </div>
                 <div className="space-y-2">
-                  {invoiceItems.map((item, idx) => (
-                    <div
-                      key={`${item.description}-${idx}`}
-                      className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm transition-colors dark:border-slate-800/70 dark:bg-slate-900/60 dark:text-slate-200 sm:grid-cols-12"
-                    >
-                      <span className="font-medium text-slate-700 dark:text-slate-100 sm:col-span-6">
-                        {item.description}
-                      </span>
-                      <span className="flex items-center justify-between text-slate-600 dark:text-slate-400 sm:col-span-2 sm:justify-end">
-                        <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
-                          Cant.
+                  {sortedItems.map((item, idx) => {
+                    const lineNumber = Number.isFinite(
+                      Number(item?.line_number)
+                    )
+                      ? Number(item.line_number)
+                      : idx + 1;
+                    const quantityValue = Number.isFinite(
+                      Number(item?.quantity)
+                    )
+                      ? Number(item.quantity)
+                      : 0;
+
+                    return (
+                      <div
+                        key={`${item.line_number ?? idx}-${
+                          item.description ?? "item"
+                        }`}
+                        className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm transition-colors dark:border-slate-800/70 dark:bg-slate-900/60 dark:text-slate-200 sm:grid-cols-12"
+                      >
+                        <span className="flex items-start gap-2 font-medium text-slate-700 dark:text-slate-100 sm:col-span-6">
+                          <span className="mt-0.5 inline-flex min-w-[1.75rem] justify-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-800/70 dark:text-slate-400">
+                            #{lineNumber}
+                          </span>
+                          <span>{item.description}</span>
                         </span>
-                        <span>{item.quantity.toFixed(2)}</span>
-                      </span>
-                      <span className="flex items-center justify-between text-slate-600 dark:text-slate-400 sm:col-span-2 sm:justify-end">
-                        <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
-                          Unitario
+                        <span className="flex items-center justify-between text-slate-600 dark:text-slate-400 sm:col-span-2 sm:justify-end">
+                          <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
+                            Cant.
+                          </span>
+                          <span>{quantityValue.toFixed(2)}</span>
                         </span>
-                        <span>{currencyFormatter(item.unit_price)}</span>
-                      </span>
-                      <span className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-100 sm:col-span-2 sm:justify-end">
-                        <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
-                          Subtotal
+                        <span className="flex items-center justify-between text-slate-600 dark:text-slate-400 sm:col-span-2 sm:justify-end">
+                          <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
+                            Unitario
+                          </span>
+                          <span>{currencyFormatter(item.unit_price)}</span>
                         </span>
-                        <span>{currencyFormatter(item.subtotal)}</span>
-                      </span>
-                    </div>
-                  ))}
+                        <span className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-100 sm:col-span-2 sm:justify-end">
+                          <span className="text-xs uppercase tracking-wide text-slate-500 sm:hidden">
+                            Subtotal
+                          </span>
+                          <span>{currencyFormatter(item.subtotal)}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ) : (

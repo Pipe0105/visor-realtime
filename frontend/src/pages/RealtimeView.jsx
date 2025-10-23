@@ -18,6 +18,7 @@ function RealtimeView() {
     summary,
     billingSeries,
     latestBillingPoint,
+    hourlySalesHeatmap,
     dailySalesSeries,
     isRefreshing,
     handleManualRefresh,
@@ -83,6 +84,7 @@ function RealtimeView() {
           latestBillingPoint={latestBillingPoint}
           formatCurrency={formatCurrency}
           dailySalesSeries={dailySalesSeries}
+          hourlySalesHeatmap={hourlySalesHeatmap}
         />
       ) : null}
 

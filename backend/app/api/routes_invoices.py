@@ -657,21 +657,39 @@ def get_invoice_items(invoice_number: str, db: Session = Depends(get_db)):
 
         if not invoice:
             return {"error": f"Factura '{invoice_number}' no encontrada"}
+        
+        sorted_items = sorted(
+            invoice.items,
+            key=lambda item: (
+                0
+                if item.line_number is not None
+                else 1,
+                item.line_number if item.line_number is not None else 0,
+                item.description or "",
+            ),
+        )
 
         return {
             "invoice_number": invoice.number,
             "items": [
                 {
+                    "line_number": int(item.line_number)
+                    if item.line_number is not None
+                    else None,
                     "product_code": item.product_code,
                     "description": item.description,
-                    "quantity": float(item.quantity) if item.quantity is not None else 0,
+                    "quantity": float(item.quantity)
+                    if item.quantity is not None
+                    else 0,
                     "unit_price": float(item.unit_price)
                     if item.unit_price is not None
                     else 0,
-                    "subtotal": float(item.subtotal) if item.subtotal is not None else 0,
+                    "subtotal": float(item.subtotal)
+                    if item.subtotal is not None
+                    else 0,
                     "unit": getattr(item, "unit", ""),
                 }
-                for item in invoice.items
+                for item in sorted_items
             ],
         }
 
