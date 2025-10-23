@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from math import fsum
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, literal, select
 from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.models.branch import Branch
@@ -482,6 +482,9 @@ def get_today_forecast(
 
     now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    current_day_elapsed_seconds = max (
+        (now - today_start).total_seconds(), 0.0,
+    )
     tomorrow_start = today_start + timedelta(days=1)
     history_start = today_start - timedelta(days=history_days)
     yesterday = today_start.date() - timedelta(days=1)
@@ -523,11 +526,17 @@ def get_today_forecast(
     previous_invoice_count = (
         int(yesterday_summary.invoice_count or 0) if yesterday_summary else 0
     )
+    
+    seconds_since_day_start = func.extract(
+        "epoch",
+        Invoice.created_at - func.date_trunch("day", Invoice.created_at),
+    )
 
     history_subquery = (
         db.query(
             day_expression.label("day"),
             Invoice.total.label("invoice_total"),
+            seconds_since_day_start.label("seconds_since_day_start"),
             func.row_number()
             .over(
                 partition_by=day_expression,
@@ -543,6 +552,15 @@ def get_today_forecast(
         (history_subquery.c.row_number <= FIRST_CHUNK_INVOICES, history_subquery.c.invoice_total),
         else_=0,
     )
+    
+    partial_total_case = case (
+        (
+            history_subquery.c.seconds_since_day_start
+            <= literal(current_day_elapsed_seconds),
+            history_subquery.c.invoice.total,
+        ),
+        else_=0,
+    )
 
     history_rows = (
         db.query(
@@ -552,6 +570,7 @@ def get_today_forecast(
                 "total_sales"
             ),
             func.coalesce(func.sum(first_chunk_case), 0).label("first_chunk_total"),
+            func.coalesce(func.sum(partial_total_case), 0).label("partial_total"),
         )
         .group_by(history_subquery.c.day)
         .order_by(history_subquery.c.day.desc())
@@ -579,6 +598,7 @@ def get_today_forecast(
 
     history_data = []
     ratio_samples = []
+    time_ratio_samples = []
     total_accumulator = 0.0
     first_chunk_accumulator = 0.0
     yesterday_first_chunk_total = 0.0
@@ -587,6 +607,7 @@ def get_today_forecast(
         parsed_day, display_day = _format_history_day(row.day)
         total_sales = _float_or_zero(row.total_sales)
         first_chunk_total = _float_or_zero(row.first_chunk_total)
+        partial_total = _float_or_zero(row.partial_total)
         invoice_count = int(row.invoice_count or 0)
 
         ratio = None
@@ -594,14 +615,21 @@ def get_today_forecast(
             ratio = total_sales / first_chunk_total
             ratio_samples.append((ratio, total_sales))
 
+        time_ratio = None
+        if partial_total > 0 and total_sales > 0:
+            time_ratio = total_sales / partial_total
+            time_ratio_samples.append((time_ratio, total_sales))
+
         history_data.append(
             {
                 "date": parsed_day,
                 "display_date": display_day,
                 "total": total_sales,
                 "first_chunk_total": first_chunk_total,
+                "partial_total": partial_total,
                 "invoice_count": invoice_count,
                 "ratio": ratio,
+                "time_ratio": time_ratio,
             }
         )
 
@@ -630,8 +658,10 @@ def get_today_forecast(
                 "date": entry["display_date"],
                 "total": entry["total"],
                 "first_chunk_total": entry["first_chunk_total"],
+                "partial_total": entry.get("partial_total"),
                 "invoice_count": entry["invoice_count"],
                 "ratio": entry["ratio"],
+                "time_ratio": entry.get("time_ratio"),
                 "previous_total": previous_total_value,
             }
         )
@@ -657,6 +687,20 @@ def get_today_forecast(
         average_ratio = sum(ratio for ratio, _ in ratio_samples) / len(ratio_samples)
     else:
         average_ratio = 1.0
+        
+    weighted_time_ratio_sum = sum(
+        ratio * weight for ratio, weight in time_ratio_samples
+    )
+    time_weight_total = sum(weight for _, weight in time_ratio_samples)
+
+    if time_weight_total > 0:
+        average_time_ratio = weighted_time_ratio_sum / time_weight_total
+    elif time_ratio_samples:
+        average_time_ratio = sum(
+            ratio for ratio, _ in time_ratio_samples
+        ) / len(time_ratio_samples)
+    else:
+        average_time_ratio = None
 
     today_first_chunk_rows = (
         db.query(Invoice.total)
@@ -742,6 +786,21 @@ def get_today_forecast(
         forecast_method = "linear_regression"
         if first_chunk_total_today > 0:
             forecast_ratio = forecast_total / first_chunk_total_today
+    elif (
+        current_total > 0
+        and average_time_ratio
+        and average_time_ratio > 0
+        and current_invoice_count > first_chunk_invoices_today
+    ):
+        time_based_total = current_total * average_time_ratio
+        forecast_total = max(time_based_total, current_total)
+        forecast_method = "time_of_day_ratio"
+        if first_chunk_total_today > 0:
+            forecast_ratio = forecast_total / first_chunk_total_today
+        elif historical_average_first_chunk > 0:
+            forecast_ratio = forecast_total / historical_average_first_chunk
+        else:
+            forecast_ratio = average_time_ratio or 1.0
     elif (
         first_chunk_total_today > 0
         and previous_total > 0

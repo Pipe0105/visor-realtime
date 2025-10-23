@@ -15,6 +15,7 @@ const METHOD_LABELS = {
   current_total_only: "Total actual",
   previous_total_only: "Total del dia anterior",
   blended_historical_estimate: "Estimación combinada",
+  time_of_day_ratio: "Proyección por avance del día",
   no_branch_match: "Sucursal no encontrada",
 };
 
