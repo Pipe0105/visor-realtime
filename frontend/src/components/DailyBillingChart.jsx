@@ -1,10 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Box, Slider, Typography, useTheme } from "@mui/material";
 
 import { LineChart } from "@mui/x-charts/LineChart";
 
 const DEFAULT_HEIGHT = 320;
 const FALLBACK_WIDTH = 720;
+const CHART_MARGIN = { left: 72, right: 24, top: 48, bottom: 48 };
 
 const axisCurrencyFormatter = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -172,6 +179,92 @@ export default function DailyBillingChart({
     setVisibleDomain([clampedStart, clampedEnd]);
   };
 
+  const handleWheel = useCallback(
+    (event) => {
+      if (!sliderBounds || !Array.isArray(xDomain) || xDomain.length !== 2) {
+        return;
+      }
+
+      const [domainStart, domainEnd] = xDomain;
+      if (!Number.isFinite(domainStart) || !Number.isFinite(domainEnd)) {
+        return;
+      }
+
+      const span = domainEnd - domainStart;
+      if (span <= sliderBounds.minDistance) {
+        return;
+      }
+
+      const container = containerRef.current;
+      if (!container) {
+        return;
+      }
+
+      if (
+        typeof Element !== "undefined" &&
+        event.target instanceof Element &&
+        event.target.closest('[role="slider"]')
+      ) {
+        return;
+      }
+
+      const { left, top } = container.getBoundingClientRect();
+      const chartWidth = Math.max(width, 360);
+      const drawableWidth = Math.max(
+        chartWidth - CHART_MARGIN.left - CHART_MARGIN.right,
+        1
+      );
+      const chartHeight =
+        DEFAULT_HEIGHT + CHART_MARGIN.top + CHART_MARGIN.bottom;
+      const pointerY = event.clientY - top;
+
+      if (pointerY < 0 || pointerY > chartHeight) {
+        return;
+      }
+
+      const pointerOffset = event.clientX - left - CHART_MARGIN.left;
+      const pointerRatio = Math.min(
+        Math.max(pointerOffset / drawableWidth, 0),
+        1
+      );
+
+      event.preventDefault();
+
+      const direction = event.deltaY > 0 ? 1 : -1;
+      const zoomIntensity = 0.18;
+      const totalSpan = sliderBounds.max - sliderBounds.min;
+      const minSpan = sliderBounds.minDistance;
+      const maxSpan = Math.max(totalSpan, minSpan);
+
+      let nextSpan = span * (1 + zoomIntensity * direction);
+      nextSpan = Math.min(Math.max(nextSpan, minSpan), maxSpan);
+
+      const center = domainStart + span * pointerRatio;
+      let nextStart = center - pointerRatio * nextSpan;
+      let nextEnd = nextStart + nextSpan;
+
+      if (nextStart < sliderBounds.min) {
+        nextStart = sliderBounds.min;
+        nextEnd = nextStart + nextSpan;
+      }
+
+      if (nextEnd > sliderBounds.max) {
+        nextEnd = sliderBounds.max;
+        nextStart = nextEnd - nextSpan;
+      }
+
+      if (
+        Math.abs(nextStart - domainStart) < 1 &&
+        Math.abs(nextEnd - domainEnd) < 1
+      ) {
+        return;
+      }
+
+      setVisibleDomain([nextStart, nextEnd]);
+    },
+    [sliderBounds, width, xDomain]
+  );
+
   if (dataset.length === 0) {
     return (
       <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
@@ -187,7 +280,7 @@ export default function DailyBillingChart({
   }
 
   return (
-    <Box ref={containerRef} sx={{ width: "100%" }}>
+    <Box ref={containerRef} sx={{ width: "100%" }} onWheel={handleWheel}>
       <LineChart
         dataset={dataset}
         xAxis={[
@@ -229,7 +322,7 @@ export default function DailyBillingChart({
         axisHighlight={{ x: "line", y: "none" }}
         width={Math.max(width, 360)}
         height={DEFAULT_HEIGHT}
-        margin={{ left: 72, right: 24, top: 48, bottom: 48 }}
+        margin={CHART_MARGIN}
         slotProps={{
           legend: {
             direction: "row",
@@ -246,6 +339,8 @@ export default function DailyBillingChart({
           "--Charts-axisLabelColor": theme.palette.text.secondary,
           "--Charts-legendLabelColor": theme.palette.text.secondary,
           "--Charts-tooltip-background": theme.palette.background.paper,
+          "--Charts-tooltip-text-color": theme.palette.text.primary,
+
           [`.MuiLineElement-root`]: {
             strokeWidth: 2.25,
           },
@@ -295,8 +390,8 @@ export default function DailyBillingChart({
         }}
       >
         Pasa el cursor sobre cada punto para ver la factura y su desviación del
-        promedio. Usa el control inferior para acercar o desplazar la ventana
-        temporal.
+        promedio. Usa el control inferior o la rueda del mouse para acercar o
+        desplazar la ventana temporal.
       </Typography>
     </Box>
   );
