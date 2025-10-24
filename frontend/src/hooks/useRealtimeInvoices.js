@@ -200,57 +200,56 @@ export function useRealtimeInvoices() {
 
   const isMountedRef = useRef(true);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const refreshHistory = useCallback(
-      async (branchValue) => {
-        setHistoryStatus((prev) => ({
-          ...prev,
-          loading: true,
-          error: null,
-        }));
-
-        try {
-          const history = await loadDailySalesHistory(branchValue);
-          if (!isMountedRef.current) {
-            return history;
-          }
-          setDailySalesHistory(history);
-          setHistoryStatus({
-            loading: false,
-            error: null,
-            lastUpdated: new Date().toISOString(),
-          });
+  const refreshHistory = useCallback(
+    async (branchValue) => {
+      setHistoryStatus((prev) => ({
+        ...prev,
+        loading: true,
+        error: null,
+      }));
+      try {
+        const history = await loadDailySalesHistory(branchValue);
+        if (!isMountedRef.current) {
           return history;
-        } catch (error) {
-          console.error("Error recargando historial", error);
-          if (!isMountedRef.current) {
-            throw error;
-          }
-          setHistoryStatus((prev) => ({
-            loading: false,
-            error:
-              error instanceof Error && error.message
-                ? error.message
-                : "No se pudo cargar el historial",
-            lastUpdated: prev.lastUpdated,
-          }));
+        }
+        setDailySalesHistory(history);
+        setHistoryStatus({
+          loading: false,
+          error: null,
+          lastUpdated: new Date().toISOString(),
+        });
+        return history;
+      } catch (error) {
+        console.error("Error recargando historial", error);
+        if (!isMountedRef.current) {
           throw error;
         }
-      },
-      [loadDailySalesHistory]
-    );
+        setHistoryStatus((prev) => ({
+          loading: false,
+          error:
+            error instanceof Error && error.message
+              ? error.message
+              : "No se pudo cargar el historial",
+          lastUpdated: prev.lastUpdated,
+        }));
+        throw error;
+      }
+    },
+    [loadDailySalesHistory]
+  );
 
-    useEffect(() => {
-      refreshHistory().catch(() => {});
-    }, [refreshHistory]);
+  useEffect(() => {
+    refreshHistory().catch(() => {});
+  }, [refreshHistory]);
 
-    useEffect(() => {
-      return () => {
-        isMountedRef.current = false;
-      };
-    }, []);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
 
     loadSalesForecast(filters.branch)
       .then((forecast) => {
