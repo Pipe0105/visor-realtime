@@ -46,7 +46,10 @@ function RealtimeView() {
 
   const connectionHealthy = status.includes("🟢");
 
-  const handleToggleCharts = () => {
+  const handleToggleCharts = (event) => {
+    if (event?.preventDefault) {
+      event.preventDefault();
+    }
     setShowCharts((prev) => !prev);
   };
 
@@ -81,39 +84,39 @@ function RealtimeView() {
           summary={summary}
           formatCurrency={formatCurrency}
         />
-      ) : null}
-
-      <RealtimeInvoicesSection
-        activeFiltersCount={activeFiltersCount}
-        areFiltersOpen={areFiltersOpen}
-        onToggleFilters={() => setAreFiltersOpen((prev) => !prev)}
-        invoicesCountLabel={invoicesCountLabel}
-        filters={filters}
-        onFilterChange={handleFilterChange}
-        totalsRange={totalsRange}
-        itemsRange={itemsRange}
-        onResetFilters={handleResetFilters}
-        onApplyFilters={handleApplyFilters}
-        messages={messages}
-        filteredMessages={filteredMessages}
-        paginatedMessages={paginatedMessages}
-        onInvoiceClick={handleInvoiceClick}
-        selectedInvoice={selectedInvoices}
-        invoiceItems={invoiceItems}
-        loadingItems={loadingItems}
-        selectedInvoiceData={selectedInvoiceData}
-        selectedInvoiceMeta={selectedInvoiceMeta}
-        detailComputedTotal={detailComputedTotal}
-        detailItemsCount={detailItemsCount}
-        pageRangeStart={pageRangeStart}
-        pageRangeEnd={pageRangeEnd}
-        totalFilteredInvoices={totalFilteredInvoices}
-        totalPages={totalPages}
-        paginationRange={paginationRange}
-        currentPage={currentPage}
-        onPageChange={setCurrentPage}
-        formatCurrency={formatCurrency}
-      />
+      ) : (
+        <RealtimeInvoicesSection
+          activeFiltersCount={activeFiltersCount}
+          areFiltersOpen={areFiltersOpen}
+          onToggleFilters={() => setAreFiltersOpen((prev) => !prev)}
+          invoicesCountLabel={invoicesCountLabel}
+          filters={filters}
+          onFilterChange={handleFilterChange}
+          totalsRange={totalsRange}
+          itemsRange={itemsRange}
+          onResetFilters={handleResetFilters}
+          onApplyFilters={handleApplyFilters}
+          messages={messages}
+          filteredMessages={filteredMessages}
+          paginatedMessages={paginatedMessages}
+          onInvoiceClick={handleInvoiceClick}
+          selectedInvoice={selectedInvoices}
+          invoiceItems={invoiceItems}
+          loadingItems={loadingItems}
+          selectedInvoiceData={selectedInvoiceData}
+          selectedInvoiceMeta={selectedInvoiceMeta}
+          detailComputedTotal={detailComputedTotal}
+          detailItemsCount={detailItemsCount}
+          pageRangeStart={pageRangeStart}
+          pageRangeEnd={pageRangeEnd}
+          totalFilteredInvoices={totalFilteredInvoices}
+          totalPages={totalPages}
+          paginationRange={paginationRange}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          formatCurrency={formatCurrency}
+        />
+      )}
     </div>
   );
 }

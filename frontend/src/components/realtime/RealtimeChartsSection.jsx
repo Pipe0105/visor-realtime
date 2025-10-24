@@ -85,6 +85,8 @@ export default function RealtimeChartsSection({
 
   const totalSales = summary?.total ?? 0;
   const totalInvoices = summary?.count ?? 0;
+  const hasHourlyData = hourlyDataset.length > 0;
+  const hasBranchData = branchDataset.length > 0;
 
   return (
     <section
