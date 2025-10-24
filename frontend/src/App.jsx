@@ -2,12 +2,45 @@ import React, { useState, useEffect } from "react";
 import RealtimeView from "./pages/RealtimeView";
 import Header from "./components/Header";
 
+function getInitialTheme() {
+  if (typeof window === "undefined") {
+    return "light";
+  }
+
+  try {
+    const storedTheme = window.localStorage.getItem("theme");
+    if (storedTheme === "dark" || storedTheme === "light") {
+      return storedTheme;
+    }
+  } catch (error) {
+    console.warn("No se pudo leer la preferencia de tema almacenada", error);
+  }
+
+  if (
+    window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  ) {
+    return "dark";
+  }
+
+  return "light";
+}
+
 export default function App() {
-  const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
+  const [theme, setTheme] = useState(getInitialTheme);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    localStorage.setItem("theme", theme);
+    if (typeof document !== "undefined") {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+    }
+
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem("theme", theme);
+      } catch (error) {
+        console.warn("No se pudo guardar la preferencia de tema", error);
+      }
+    }
   }, [theme]);
 
   const toggleTheme = () =>
