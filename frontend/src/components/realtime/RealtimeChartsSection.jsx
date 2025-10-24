@@ -25,7 +25,13 @@ const START_HOUR = 7;
 const END_HOUR = 21;
 const MINUTE_IN_MS = 60 * 1000;
 const MIN_WINDOW_MINUTES = 5;
-const MIN_WINDOW_MS = MIN_WINDOW_MINUTES * MINUTE_IN_MS;
+const AGGREGATION_OPTIONS = [
+  { value: 1, label: "1 min" },
+  { value: 5, label: "5 min" },
+  { value: 10, label: "10 min" },
+  { value: 15, label: "15 min" },
+  { value: 30, label: "30 min" },
+];
 
 function getReferenceDate(messages = []) {
   for (const invoice of messages) {
@@ -40,7 +46,7 @@ function getReferenceDate(messages = []) {
   return new Date();
 }
 
-function buildMinuteDataset(messages = []) {
+function buildIntervalDataset(messages = [], intervalMinutes = 1) {
   const referenceDate = getReferenceDate(messages);
   const start = new Date(referenceDate);
   start.setHours(START_HOUR, 0, 0, 0);
@@ -54,7 +60,8 @@ function buildMinuteDataset(messages = []) {
   const totalMinutes = Math.round(
     (end.getTime() - start.getTime()) / MINUTE_IN_MS
   );
-  const totalsByMinute = new Map();
+  const intervalMs = Math.max(1, intervalMinutes) * MINUTE_IN_MS;
+  const totalsByInterval = new Map();
 
   messages.forEach((invoice) => {
     const timestamp =
@@ -65,18 +72,18 @@ function buildMinuteDataset(messages = []) {
       return;
     }
 
-    const minuteTimestamp = new Date(timestamp);
-    minuteTimestamp.setSeconds(0, 0);
+    const normalizedTimestamp = new Date(timestamp);
+    normalizedTimestamp.setSeconds(0, 0);
 
-    if (minuteTimestamp < start || minuteTimestamp > end) {
+    if (normalizedTimestamp < start || normalizedTimestamp > end) {
       return;
     }
 
-    const minuteIndex = Math.floor(
-      (minuteTimestamp.getTime() - start.getTime()) / MINUTE_IN_MS
+    const intervalIndex = Math.floor(
+      (normalizedTimestamp.getTime() - start.getTime()) / intervalMs
     );
 
-    if (minuteIndex < 0 || minuteIndex > totalMinutes) {
+    if (intervalIndex < 0 || intervalIndex > totalMinutes) {
       return;
     }
 
@@ -86,19 +93,19 @@ function buildMinuteDataset(messages = []) {
       return;
     }
 
-    totalsByMinute.set(
-      minuteIndex,
-      (totalsByMinute.get(minuteIndex) ?? 0) + totalValue
+    totalsByInterval.set(
+      intervalIndex,
+      (totalsByInterval.get(intervalIndex) ?? 0) + totalValue
     );
   });
 
-  const dataset = Array.from(totalsByMinute.entries())
+  const dataset = Array.from(totalsByInterval.entries())
     .sort(([a], [b]) => a - b)
-    .map(([minuteIndex, total]) => {
-      const timestamp = new Date(start.getTime() + minuteIndex * MINUTE_IN_MS);
+    .map(([intervalIndex, total]) => {
+      const timestamp = new Date(start.getTime() + intervalIndex * intervalMs);
       return {
         timestamp,
-        minuteIndex,
+        intervalIndex,
         label: timestamp.toISOString(),
         total,
       };
@@ -154,9 +161,11 @@ export default function RealtimeChartsSection({
   summary = null,
   formatCurrency = formatCurrencyDefault,
 }) {
-  const { dataset: minuteDataset, domain } = useMemo(
-    () => buildMinuteDataset(messages),
-    [messages]
+  const [aggregationMinutes, setAggregationMinutes] = useState(1);
+
+  const { dataset: salesDataset, domain } = useMemo(
+    () => buildIntervalDataset(messages, aggregationMinutes),
+    [messages, aggregationMinutes]
   );
 
   const totalSales = summary?.total ?? 0;
@@ -195,16 +204,21 @@ export default function RealtimeChartsSection({
     []
   );
 
+  const minWindowMs = useMemo(
+    () => Math.max(MIN_WINDOW_MINUTES, aggregationMinutes) * MINUTE_IN_MS,
+    [aggregationMinutes]
+  );
+
   const fullRangeMs = useMemo(
-    () => Math.max(domain.end - domain.start, MIN_WINDOW_MS),
-    [domain.end, domain.start]
+    () => Math.max(domain.end - domain.start, minWindowMs),
+    [domain.end, domain.start, minWindowMs]
   );
 
   const clampDomain = useCallback(
     (start, end) => {
       const desiredWindow = end - start;
       const windowSize = Math.min(
-        Math.max(desiredWindow, MIN_WINDOW_MS),
+        Math.max(desiredWindow, minWindowMs),
         fullRangeMs
       );
       let nextStart = start;
@@ -235,16 +249,19 @@ export default function RealtimeChartsSection({
         end: Math.min(domain.end, nextEnd),
       };
     },
-    [domain.end, domain.start, fullRangeMs]
+    [domain.end, domain.start, fullRangeMs, minWindowMs]
   );
 
   const handleWheel = useCallback(
     (event) => {
-      if (!minuteDataset.length) {
+      if (!salesDataset.length) {
         return;
       }
 
-      event.preventDefault();
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation?.();
       const container = containerRef.current;
 
       if (!container) {
@@ -261,7 +278,8 @@ export default function RealtimeChartsSection({
         const direction = event.deltaY > 0 ? 1 : -1;
         const zoomMultiplier = direction > 0 ? 1.2 : 0.8;
         const nextWindow = Math.min(
-          Math.max(currentWindow * zoomMultiplier, MIN_WINDOW_MS),
+          Math.max(currentWindow * zoomMultiplier, minWindowMs),
+
           fullRangeMs
         );
         const anchor = previous.start + pointerRatio * currentWindow;
@@ -270,8 +288,25 @@ export default function RealtimeChartsSection({
         return clampDomain(nextStart, nextEnd);
       });
     },
-    [clampDomain, fullRangeMs, minuteDataset.length]
+    [clampDomain, fullRangeMs, minWindowMs, salesDataset.length]
   );
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return () => {};
+    }
+
+    const wheelListener = (event) => {
+      handleWheel(event);
+    };
+
+    container.addEventListener("wheel", wheelListener, { passive: false });
+
+    return () => {
+      container.removeEventListener("wheel", wheelListener);
+    };
+  }, [handleWheel]);
 
   const endPan = useCallback(() => {
     const container = containerRef.current;
@@ -298,7 +333,7 @@ export default function RealtimeChartsSection({
   const handlePointerDown = useCallback(
     (event) => {
       if (
-        !minuteDataset.length ||
+        !salesDataset.length ||
         (event.button !== undefined && event.button !== 0)
       ) {
         return;
@@ -320,7 +355,7 @@ export default function RealtimeChartsSection({
       };
       setIsPanning(true);
     },
-    [minuteDataset.length, viewDomain.end, viewDomain.start]
+    [salesDataset.length, viewDomain.end, viewDomain.start]
   );
 
   const handlePointerMove = useCallback(
@@ -358,6 +393,10 @@ export default function RealtimeChartsSection({
     endPan();
   }, [endPan]);
 
+  useEffect(() => {
+    setViewDomain((previous) => clampDomain(previous.start, previous.end));
+  }, [clampDomain]);
+
   return (
     <section
       className="grid gap-4 rounded-2xl border border-slate-200/60 bg-white/80 p-4 shadow-sm backdrop-blur dark:border-slate-800/60 dark:bg-slate-900/60"
@@ -369,8 +408,8 @@ export default function RealtimeChartsSection({
             Panorama de ventas
           </h3>
           <p className="text-sm text-slate-600 dark:text-slate-300/80">
-            Evolución minuto a minuto de las facturas recibidas durante la
-            jornada.
+            Evolución de las facturas recibidas durante la jornada según el
+            intervalo seleccionado.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">
@@ -381,19 +420,42 @@ export default function RealtimeChartsSection({
 
       <Card className="border border-slate-200 bg-white/90 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
         <CardHeader>
-          <CardTitle className="text-base font-semibold">
-            Ventas minuto a minuto
-          </CardTitle>
-          <CardDescription>
-            Acércate con la rueda del ratón y arrastra para desplazarte entre
-            las 7:00 a. m. y las 9:00 p. m.
-          </CardDescription>
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-6">
+            <div>
+              <CardTitle className="text-base font-semibold">
+                Ventas por intervalo de tiempo
+              </CardTitle>
+              <CardDescription>
+                Acércate con la rueda del ratón y arrastra para desplazarte
+                entre las 7:00 a. m. y las 9:00 p. m.
+              </CardDescription>
+            </div>
+            <label
+              className="flex flex-col gap-1 text-xs font-medium text-slate-600 dark:text-slate-300"
+              htmlFor="aggregation-interval"
+            >
+              Intervalo de agrupación
+              <select
+                id="aggregation-interval"
+                value={aggregationMinutes}
+                onChange={(event) =>
+                  setAggregationMinutes(Number.parseInt(event.target.value, 10))
+                }
+                className="w-full min-w-[120px] rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm transition focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-500 dark:focus:ring-slate-500/40"
+              >
+                {AGGREGATION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </CardHeader>
         <CardContent className="h-[360px]">
           {hasInvoices ? (
             <div
               ref={containerRef}
-              onWheel={handleWheel}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
@@ -404,7 +466,7 @@ export default function RealtimeChartsSection({
               }`}
             >
               <LineChart
-                dataset={minuteDataset}
+                dataset={salesDataset}
                 height={320}
                 xAxis={[
                   {
@@ -425,7 +487,8 @@ export default function RealtimeChartsSection({
                 ]}
                 series={[
                   {
-                    id: "minute-sales",
+                    id: "aggregated-sales",
+
                     dataKey: "total",
                     label: "Total vendido",
                     showMark: true,
