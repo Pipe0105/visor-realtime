@@ -337,7 +337,6 @@ export default function DailyBillingChart({
   const [width, setWidth] = useState(FALLBACK_WIDTH);
   const [visibleDomain, setVisibleDomain] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
-  const theme = useTheme();
 
   useEffect(() => {
     const element = containerRef.current;
