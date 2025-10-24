@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -29,8 +29,8 @@ def _branch_code(branch_map, branch_id) -> str:
 def ensure_daily_reset(db: Session) -> bool:
     """Guarda resúmenes diarios y elimina datos anteriores al día actual."""
 
-    today = datetime.now().date()
-    midnight_today = datetime.combine(today, time.min)
+    now = datetime.now().astimezone()
+    midnight_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     stale_exists = (
         db.query(Invoice.id)
