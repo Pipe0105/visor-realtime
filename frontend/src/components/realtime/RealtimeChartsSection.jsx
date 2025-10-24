@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import { BarChart } from "@mui/x-charts/BarChart";
+import { LineChart } from "@mui/x-charts/LineChart";
 import { PieChart } from "@mui/x-charts/PieChart";
 import {
   Card,
@@ -20,8 +21,40 @@ import {
   toNumber,
 } from "../../lib/invoiceUtils";
 
-function buildHourlyDataset(messages) {
-  const totals = new Map();
+const START_HOUR = 7;
+const END_HOUR = 21;
+const MINUTE_IN_MS = 60 * 1000;
+const MIN_WINDOW_MINUTES = 5;
+const MIN_WINDOW_MS = MIN_WINDOW_MINUTES * MINUTE_IN_MS;
+
+function getReferenceDate(messages = []) {
+  for (const invoice of messages) {
+    const timestamp =
+      parseInvoiceTimestamp(
+        invoice?.invoice_date ?? invoice?.timestamp ?? invoice?.created_at
+      ) ?? null;
+    if (timestamp) {
+      return timestamp;
+    }
+  }
+  return new Date();
+}
+
+function buildMinuteDataset(messages = []) {
+  const referenceDate = getReferenceDate(messages);
+  const start = new Date(referenceDate);
+  start.setHours(START_HOUR, 0, 0, 0);
+  const end = new Date(referenceDate);
+  end.setHours(END_HOUR, 0, 0, 0);
+
+  if (end <= start) {
+    end.setTime(start.getTime() + 14 * 60 * MINUTE_IN_MS);
+  }
+
+  const totalMinutes = Math.round(
+    (end.getTime() - start.getTime()) / MINUTE_IN_MS
+  );
+  const totalsByMinute = new Map();
 
   messages.forEach((invoice) => {
     const timestamp =
@@ -32,53 +65,52 @@ function buildHourlyDataset(messages) {
       return;
     }
 
-    const hour = timestamp.getHours();
-    const label = `${hour.toString().padStart(2, "0")}:00`;
-    const totalValue = toNumber(invoice?.total);
+    const minuteTimestamp = new Date(timestamp);
+    minuteTimestamp.setSeconds(0, 0);
 
-    if (!totals.has(label)) {
-      totals.set(label, { hour, total: 0, count: 0 });
+    if (minuteTimestamp < start || minuteTimestamp > end) {
+      return;
     }
 
-    const entry = totals.get(label);
-    entry.total += totalValue;
-    entry.count += 1;
+    const minuteIndex = Math.floor(
+      (minuteTimestamp.getTime() - start.getTime()) / MINUTE_IN_MS
+    );
+
+    if (minuteIndex < 0 || minuteIndex > totalMinutes) {
+      return;
+    }
+
+    const totalValue = toNumber(invoice?.total);
+
+    if (!Number.isFinite(totalValue)) {
+      return;
+    }
+
+    totalsByMinute.set(
+      minuteIndex,
+      (totalsByMinute.get(minuteIndex) ?? 0) + totalValue
+    );
   });
 
-  return Array.from(totals.values())
-    .sort((a, b) => a.hour - b.hour)
-    .map((entry, index, array) => {
-      const cumulative = array
-        .slice(0, index + 1)
-        .reduce((sum, item) => sum + item.total, 0);
+  const dataset = [];
 
-      return {
-        label: `${entry.hour.toString().padStart(2, "0")}:00`,
-        total: entry.total,
-        count: entry.count,
-        cumulative,
-        average: entry.count > 0 ? entry.total / entry.count : 0,
-      };
+  for (let index = 0; index <= totalMinutes; index += 1) {
+    const timestamp = new Date(start.getTime() + index * MINUTE_IN_MS);
+    dataset.push({
+      timestamp,
+      minuteIndex: index,
+      label: timestamp.toISOString(),
+      total: totalsByMinute.get(index) ?? 0,
     });
-}
+  }
 
-function buildBranchDataset(messages) {
-  const totals = new Map();
-
-  messages.forEach((invoice) => {
-    const branch = (invoice?.branch ?? "General").toString();
-    const totalValue = toNumber(invoice?.total);
-
-    if (!totals.has(branch)) {
-      totals.set(branch, 0);
-    }
-
-    totals.set(branch, totals.get(branch) + totalValue);
-  });
-
-  return Array.from(totals.entries())
-    .map(([branch, total]) => ({ branch, total }))
-    .sort((a, b) => b.total - a.total);
+  return {
+    dataset,
+    domain: {
+      start: start.getTime(),
+      end: end.getTime(),
+    },
+  };
 }
 
 function useElementWidth(ref) {
@@ -122,242 +154,209 @@ export default function RealtimeChartsSection({
   summary = null,
   formatCurrency = formatCurrencyDefault,
 }) {
-  const hourlyDataset = useMemo(() => buildHourlyDataset(messages), [messages]);
-  const branchDataset = useMemo(() => buildBranchDataset(messages), [messages]);
-
-  const totalHourlyPoints = hourlyDataset.length;
-  const [hourlyView, setHourlyView] = useState(() => ({
-    start: 0,
-    size: totalHourlyPoints > 0 ? totalHourlyPoints : 0,
-  }));
-
-  useEffect(() => {
-    setHourlyView((previous) => {
-      if (totalHourlyPoints === 0) {
-        return { start: 0, size: 0 };
-      }
-
-      const clampedSize = Math.min(
-        Math.max(1, previous.size || totalHourlyPoints),
-        totalHourlyPoints
-      );
-      const maxStart = Math.max(0, totalHourlyPoints - clampedSize);
-      const clampedStart = Math.min(previous.start, maxStart);
-
-      if (clampedStart === previous.start && clampedSize === previous.size) {
-        return previous;
-      }
-
-      return { start: clampedStart, size: clampedSize };
-    });
-  }, [totalHourlyPoints]);
-
-  const visibleHourlyDataset = useMemo(() => {
-    if (totalHourlyPoints === 0) {
-      return [];
-    }
-
-    const windowStart = Math.min(hourlyView.start, totalHourlyPoints - 1);
-    const windowEnd = Math.min(
-      totalHourlyPoints,
-      windowStart + Math.max(1, hourlyView.size)
-    );
-
-    return hourlyDataset.slice(windowStart, windowEnd);
-  }, [hourlyDataset, hourlyView, totalHourlyPoints]);
+  const { dataset: minuteDataset, domain } = useMemo(
+    () => buildMinuteDataset(messages),
+    [messages]
+  );
 
   const totalSales = summary?.total ?? 0;
   const totalInvoices = summary?.count ?? 0;
-  const hasHourlyData = hourlyDataset.length > 0;
-  const hasBranchData = branchDataset.length > 0;
-  const isZoomed = hasHourlyData && hourlyView.size < totalHourlyPoints;
+  const hasInvoices = messages.length > 0;
 
-  const hourlyChartRef = useRef(null);
-  const hourlyChartWidth = useElementWidth(hourlyChartRef);
-  const dragState = useRef({
-    active: false,
-    startX: 0,
-    startWindow: 0,
+  const [viewDomain, setViewDomain] = useState(domain);
+  const [isPanning, setIsPanning] = useState(false);
+  const containerRef = useRef(null);
+  const panStateRef = useRef({
+    isPanning: false,
     pointerId: null,
+    startX: 0,
+    initialStart: domain.start,
+    initialEnd: domain.end,
   });
 
-  const resetHourlyView = useCallback(() => {
-    setHourlyView({
-      start: 0,
-      size: totalHourlyPoints > 0 ? totalHourlyPoints : 0,
-    });
-  }, [totalHourlyPoints]);
+  useEffect(() => {
+    setViewDomain(domain);
+    panStateRef.current = {
+      isPanning: false,
+      pointerId: null,
+      startX: 0,
+      initialStart: domain.start,
+      initialEnd: domain.end,
+    };
+    setIsPanning(false);
+  }, [domain.start, domain.end]);
 
-  const handleHourlyWheel = useCallback(
+  const timeFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat("es-CO", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    []
+  );
+
+  const fullRangeMs = useMemo(
+    () => Math.max(domain.end - domain.start, MIN_WINDOW_MS),
+    [domain.end, domain.start]
+  );
+
+  const clampDomain = useCallback(
+    (start, end) => {
+      const desiredWindow = end - start;
+      const windowSize = Math.min(
+        Math.max(desiredWindow, MIN_WINDOW_MS),
+        fullRangeMs
+      );
+      let nextStart = start;
+      let nextEnd = start + windowSize;
+
+      if (nextStart < domain.start) {
+        nextStart = domain.start;
+        nextEnd = nextStart + windowSize;
+      }
+
+      if (nextEnd > domain.end) {
+        nextEnd = domain.end;
+        nextStart = nextEnd - windowSize;
+      }
+
+      if (nextStart < domain.start) {
+        nextStart = domain.start;
+        nextEnd = domain.end;
+      }
+
+      if (nextEnd > domain.end) {
+        nextStart = domain.end - windowSize;
+        nextEnd = domain.end;
+      }
+
+      return {
+        start: Math.max(domain.start, nextStart),
+        end: Math.min(domain.end, nextEnd),
+      };
+    },
+    [domain.end, domain.start, fullRangeMs]
+  );
+
+  const handleWheel = useCallback(
     (event) => {
-      if (!hasHourlyData || totalHourlyPoints <= 1) {
+      if (!minuteDataset.length) {
         return;
       }
 
       event.preventDefault();
+      const container = containerRef.current;
 
-      const containerRect = hourlyChartRef.current?.getBoundingClientRect();
-      const pointerRatio =
-        containerRect && containerRect.width > 0
-          ? (event.clientX - containerRect.left) / containerRect.width
-          : 0.5;
-
-      const safePointerRatio = Number.isFinite(pointerRatio)
-        ? Math.min(Math.max(pointerRatio, 0), 1)
-        : 0.5;
-
-      const zoomOut = event.deltaY > 0;
-
-      setHourlyView((previous) => {
-        const total = totalHourlyPoints;
-        if (total <= 1) {
-          return previous;
-        }
-
-        const minSize = Math.min(Math.max(2, Math.ceil(total * 0.2)), total);
-        const maxSize = total;
-
-        let nextSize = Math.round(previous.size * (zoomOut ? 1.15 : 0.85));
-        nextSize = Math.max(minSize, Math.min(nextSize, maxSize));
-
-        if (nextSize === previous.size) {
-          return previous;
-        }
-
-        const anchorIndex =
-          previous.start + safePointerRatio * Math.max(previous.size - 1, 1);
-        let nextStart = Math.round(
-          anchorIndex - safePointerRatio * Math.max(nextSize - 1, 1)
-        );
-
-        const maxStart = Math.max(0, total - nextSize);
-        if (nextStart < 0) nextStart = 0;
-        if (nextStart > maxStart) nextStart = maxStart;
-
-        return {
-          start: nextStart,
-          size: nextSize,
-        };
-      });
-    },
-    [hasHourlyData, totalHourlyPoints]
-  );
-
-  const handlePointerDown = useCallback(
-    (event) => {
-      if (totalHourlyPoints <= hourlyView.size) {
-        dragState.current = {
-          active: false,
-          startX: 0,
-          startWindow: 0,
-          pointerId: null,
-        };
+      if (!container) {
         return;
       }
 
-      dragState.current = {
-        active: true,
-        startX: event.clientX,
-        startWindow: hourlyView.start,
-        pointerId: event.pointerId,
-      };
+      const rect = container.getBoundingClientRect();
+      const pointerRatio = rect.width
+        ? Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1)
+        : 0.5;
 
-      event.currentTarget.setPointerCapture?.(event.pointerId);
+      setViewDomain((previous) => {
+        const currentWindow = previous.end - previous.start;
+        const direction = event.deltaY > 0 ? 1 : -1;
+        const zoomMultiplier = direction > 0 ? 1.2 : 0.8;
+        const nextWindow = Math.min(
+          Math.max(currentWindow * zoomMultiplier, MIN_WINDOW_MS),
+          fullRangeMs
+        );
+        const anchor = previous.start + pointerRatio * currentWindow;
+        const nextStart = anchor - pointerRatio * nextWindow;
+        const nextEnd = nextStart + nextWindow;
+        return clampDomain(nextStart, nextEnd);
+      });
     },
-    [hourlyView.start, hourlyView.size, totalHourlyPoints]
+    [clampDomain, fullRangeMs, minuteDataset.length]
+  );
+
+  const endPan = useCallback(() => {
+    const container = containerRef.current;
+    const { pointerId } = panStateRef.current;
+
+    if (container && pointerId !== null) {
+      try {
+        container.releasePointerCapture(pointerId);
+      } catch (error) {
+        // Ignore release errors when the pointer has already been released.
+      }
+    }
+
+    panStateRef.current = {
+      isPanning: false,
+      pointerId: null,
+      startX: 0,
+      initialStart: viewDomain.start,
+      initialEnd: viewDomain.end,
+    };
+    setIsPanning(false);
+  }, [viewDomain.end, viewDomain.start]);
+
+  const handlePointerDown = useCallback(
+    (event) => {
+      if (
+        !minuteDataset.length ||
+        (event.button !== undefined && event.button !== 0)
+      ) {
+        return;
+      }
+
+      const container = containerRef.current;
+      if (!container) {
+        return;
+      }
+
+      event.preventDefault();
+      container.setPointerCapture?.(event.pointerId);
+      panStateRef.current = {
+        isPanning: true,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        initialStart: viewDomain.start,
+        initialEnd: viewDomain.end,
+      };
+      setIsPanning(true);
+    },
+    [minuteDataset.length, viewDomain.end, viewDomain.start]
   );
 
   const handlePointerMove = useCallback(
     (event) => {
-      if (!dragState.current.active || hourlyChartWidth <= 0) {
+      if (!panStateRef.current.isPanning) {
+        return;
+      }
+
+      const container = containerRef.current;
+      if (!container) {
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+      if (!rect.width) {
         return;
       }
 
       event.preventDefault();
-
-      const deltaPixels = event.clientX - dragState.current.startX;
-
-      setHourlyView((previous) => {
-        const total = totalHourlyPoints;
-        if (total <= previous.size) {
-          return previous;
-        }
-
-        const itemsPerPixel = previous.size / hourlyChartWidth;
-        const deltaItems = deltaPixels * itemsPerPixel;
-        let nextStart = dragState.current.startWindow - deltaItems;
-
-        const maxStart = Math.max(0, total - previous.size);
-        if (nextStart < 0) nextStart = 0;
-        if (nextStart > maxStart) nextStart = maxStart;
-
-        const roundedStart = Math.round(nextStart);
-
-        if (roundedStart === previous.start) {
-          return previous;
-        }
-
-        return {
-          start: roundedStart,
-          size: previous.size,
-        };
-      });
+      const deltaPixels = event.clientX - panStateRef.current.startX;
+      const ratio = deltaPixels / rect.width;
+      const windowSize =
+        panStateRef.current.initialEnd - panStateRef.current.initialStart;
+      const nextStart = panStateRef.current.initialStart - ratio * windowSize;
+      const nextEnd = nextStart + windowSize;
+      setViewDomain(clampDomain(nextStart, nextEnd));
     },
-    [hourlyChartWidth, totalHourlyPoints]
+    [clampDomain]
   );
 
-  const endDragging = useCallback((event) => {
-    if (!dragState.current.active) {
+  const handlePointerUp = useCallback(() => {
+    if (!panStateRef.current.isPanning) {
       return;
     }
-
-    if (dragState.current.pointerId != null) {
-      event.currentTarget.releasePointerCapture?.(dragState.current.pointerId);
-    }
-
-    dragState.current = {
-      active: false,
-      startX: 0,
-      startWindow: 0,
-      pointerId: null,
-    };
-  }, []);
-
-  const visibleWindowRange = useMemo(() => {
-    if (visibleHourlyDataset.length === 0) {
-      return "Sin datos";
-    }
-
-    const startLabel = visibleHourlyDataset[0].label;
-    const endLabel =
-      visibleHourlyDataset[visibleHourlyDataset.length - 1]?.label ??
-      startLabel;
-
-    return `${startLabel} – ${endLabel}`;
-  }, [visibleHourlyDataset]);
-
-  const totalByBranch = useMemo(
-    () =>
-      branchDataset.reduce((sum, entry) => {
-        return sum + entry.total;
-      }, 0),
-    [branchDataset]
-  );
-
-  const leadingBranch = useMemo(() => {
-    if (!hasBranchData) {
-      return null;
-    }
-
-    const [top] = branchDataset;
-    const percentage =
-      totalByBranch > 0 ? (top.total / totalByBranch) * 100 : 0;
-
-    return {
-      label: top.branch,
-      share: percentage,
-    };
-  }, [branchDataset, hasBranchData, totalByBranch]);
+    endPan();
+  }, [endPan]);
 
   return (
     <section
@@ -370,8 +369,8 @@ export default function RealtimeChartsSection({
             Panorama de ventas
           </h3>
           <p className="text-sm text-slate-600 dark:text-slate-300/80">
-            Evolución del día y distribución por sede basadas en las facturas
-            recibidas.
+            Evolución minuto a minuto de las facturas recibidas durante la
+            jornada.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">
@@ -380,218 +379,78 @@ export default function RealtimeChartsSection({
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="border border-slate-200 bg-white/90 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
-          <CardHeader>
-            <CardTitle className="text-base font-semibold">
-              Ventas por hora
-            </CardTitle>
-            <CardDescription>
-              Muestra el monto total vendido en cada bloque horario del día.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex h-[340px] flex-col gap-4">
-            {hasHourlyData ? (
-              <>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  <div className="flex flex-col">
-                    <span className="font-semibold uppercase tracking-[0.18em]">
-                      Ventana activa
-                    </span>
-                    <span className="font-medium text-slate-600 dark:text-slate-300">
-                      {visibleWindowRange}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="hidden md:inline">
-                      Usa la rueda del ratón o pellizca para hacer zoom.
-                      Arrastra para desplazar.
-                    </span>
-                    {isZoomed && (
-                      <button
-                        type="button"
-                        onClick={resetHourlyView}
-                        className="rounded-full border border-slate-300 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:text-white"
-                      >
-                        Reiniciar vista
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div
-                  ref={hourlyChartRef}
-                  onWheel={handleHourlyWheel}
-                  onPointerDown={handlePointerDown}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={endDragging}
-                  onPointerLeave={endDragging}
-                  onPointerCancel={endDragging}
-                  className="relative flex-1 select-none rounded-xl border border-slate-100/80 bg-gradient-to-b from-slate-50/70 via-white/60 to-slate-100/40 p-3 shadow-inner dark:border-slate-800/70 dark:from-slate-900/40 dark:via-slate-900/60 dark:to-slate-900/20"
-                >
-                  <BarChart
-                    dataset={visibleHourlyDataset}
-                    height={260}
-                    xAxis={[
-                      {
-                        id: "hour",
-                        scaleType: "band",
-                        dataKey: "label",
-                        label: "Bloque horario",
-                        tickLabelPlacement: "middle",
-                        tickLabelStyle: {
-                          fontSize: 11,
-                          fill: "rgb(71 85 105)",
-                        },
-                        labelStyle: {
-                          fontSize: 12,
-                          fontWeight: 600,
-                          fill: "rgb(30 41 59)",
-                        },
-                      },
-                    ]}
-                    yAxis={[
-                      {
-                        id: "sales",
-                        label: "Ventas acumuladas",
-                        valueFormatter: (value) => formatCurrency(value ?? 0),
-                        tickLabelStyle: {
-                          fontSize: 11,
-                          fill: "rgb(71 85 105)",
-                        },
-                        labelStyle: {
-                          fontSize: 12,
-                          fontWeight: 600,
-                          fill: "rgb(30 41 59)",
-                        },
-                      },
-                    ]}
-                    series={[
-                      {
-                        dataKey: "total",
-                        label: "Ventas",
-                        valueFormatter: (value) => formatCurrency(value ?? 0),
-                        color: "#2563eb",
-                        highlightScope: {
-                          highlighted: "item",
-                          faded: "global",
-                        },
-                      },
-                    ]}
-                    grid={{ horizontal: true }}
-                    axisHighlight={{ x: "band" }}
-                    tooltip={{
-                      trigger: "item",
-                      slotProps: {
-                        itemContent: {
-                          sx: {
-                            fontSize: 12,
-                          },
-                        },
-                      },
-                    }}
-                    margin={{ top: 16, right: 16, bottom: 36, left: 64 }}
-                  />
-                  {!isZoomed && totalHourlyPoints > 1 && (
-                    <div className="pointer-events-none absolute inset-x-6 bottom-6 flex items-center justify-center text-[11px] font-medium text-slate-500/80 dark:text-slate-400/80">
-                      Desplaza con arrastre para enfocar un rango específico
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-                Aún no hay suficientes facturas para graficar.
+      <Card className="border border-slate-200 bg-white/90 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+        <CardHeader>
+          <CardTitle className="text-base font-semibold">
+            Ventas minuto a minuto
+          </CardTitle>
+          <CardDescription>
+            Acércate con la rueda del ratón y arrastra para desplazarte entre
+            las 7:00 a. m. y las 9:00 p. m.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="h-[360px]">
+          {hasInvoices ? (
+            <div
+              ref={containerRef}
+              onWheel={handleWheel}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              className={`relative h-full w-full select-none rounded-lg border border-slate-200/60 bg-white/80 p-2 transition dark:border-slate-800/60 dark:bg-slate-950/50 ${
+                isPanning ? "cursor-grabbing" : "cursor-crosshair"
+              }`}
+            >
+              <LineChart
+                dataset={minuteDataset}
+                height={320}
+                xAxis={[
+                  {
+                    dataKey: "timestamp",
+                    scaleType: "time",
+                    valueFormatter: (value) => timeFormatter.format(value),
+                    min: new Date(viewDomain.start),
+                    max: new Date(viewDomain.end),
+                    tickNumber: 8,
+                  },
+                ]}
+                yAxis={[
+                  {
+                    min: 0,
+                    max: 3_000_000,
+                    valueFormatter: (value) => formatCurrency(value ?? 0),
+                  },
+                ]}
+                series={[
+                  {
+                    id: "minute-sales",
+                    dataKey: "total",
+                    label: "Total vendido",
+                    showMark: true,
+                    valueFormatter: (value) => formatCurrency(value ?? 0),
+                    curve: "monotoneX",
+                  },
+                ]}
+                margin={{ top: 16, right: 24, bottom: 32, left: 72 }}
+                grid={{ vertical: true, horizontal: true }}
+                axisHighlight={{ x: "line", y: "line" }}
+                tooltip={{ trigger: "axis" }}
+                slotProps={{ legend: { hidden: true } }}
+              />
+              <div className="pointer-events-none absolute inset-x-4 bottom-4 hidden text-xs text-slate-500 md:block dark:text-slate-400">
+                Usa la rueda del ratón para hacer zoom y mantén presionado el
+                clic izquierdo para desplazarte.
               </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border border-slate-200 bg-white/90 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
-          <CardHeader>
-            <CardTitle className="text-base font-semibold">
-              Ventas por sede
-            </CardTitle>
-            <CardDescription>
-              Distribución del total vendido según la sede reportada en cada
-              factura.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="h-[340px]">
-            {hasBranchData ? (
-              <div className="relative flex h-full flex-col">
-                <div className="absolute inset-0 flex items-center justify-center">
-                  {leadingBranch && (
-                    <div className="flex flex-col items-center rounded-xl border border-slate-200/80 bg-white/80 px-4 py-3 text-center shadow-sm backdrop-blur dark:border-slate-700/60 dark:bg-slate-900/70">
-                      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                        Sede líder
-                      </span>
-                      <span className="text-base font-semibold text-slate-800 dark:text-slate-200">
-                        {leadingBranch.label}
-                      </span>
-                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                        {leadingBranch.share.toFixed(1)}% del total
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <PieChart
-                  height={280}
-                  series={[
-                    {
-                      data: branchDataset.map((entry) => ({
-                        id: entry.branch,
-                        value: entry.total,
-                        label: entry.branch,
-                      })),
-                      valueFormatter: ({ value }) => formatCurrency(value ?? 0),
-                      innerRadius: 50,
-                      outerRadius: 110,
-                      paddingAngle: 2.2,
-                      arcLabel: ({ value }) => {
-                        if (!totalByBranch) return "";
-                        const pct = (value / totalByBranch) * 100;
-                        return `${Math.round(pct)}%`;
-                      },
-                      arcLabelMinAngle: 15,
-                      highlightScope: { highlighted: "item", faded: "global" },
-                      faded: {
-                        additionalRadius: -14,
-                        color: "rgba(148, 163, 184, 0.35)",
-                      },
-                    },
-                  ]}
-                  slotProps={{
-                    legend: {
-                      direction: "row",
-                      position: { vertical: "bottom", horizontal: "middle" },
-                      padding: 8,
-                      labelStyle: {
-                        fontSize: 12,
-                      },
-                    },
-                  }}
-                  tooltip={{
-                    trigger: "item",
-                    slotProps: {
-                      itemContent: {
-                        sx: { fontSize: 12 },
-                      },
-                    },
-                  }}
-                />
-                <div className="mt-2 text-center text-[11px] text-slate-500 dark:text-slate-400">
-                  Pasa el cursor o toca cada porción para conocer el monto
-                  exacto.
-                </div>
-              </div>
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-                No se han reportado sedes en las facturas recibidas.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-200/60 bg-slate-50 text-sm text-slate-500 dark:border-slate-800/60 dark:bg-slate-900/40 dark:text-slate-400">
+              Aún no hay facturas registradas en este rango horario.
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </section>
   );
 }
