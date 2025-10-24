@@ -1,11 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 import RealtimeHeader from "../components/realtime/RealtimeHeader";
 import RealtimeInvoicesSection from "../components/realtime/RealtimeInvoicesSection";
 import RealtimeMetrics from "../components/realtime/RealtimeMetrics";
 import { useRealtimeInvoices } from "../hooks/useRealtimeInvoices";
 import { formatCurrency } from "../lib/invoiceUtils";
+import RealtimeChartsSection from "../components/realtime/RealtimeChartsSection";
+import { Button } from "../components/button";
 
 function RealtimeView() {
+  const [showCharts, setShowCharts] = useState(false);
   const {
     status,
     summary,
@@ -43,6 +46,10 @@ function RealtimeView() {
 
   const connectionHealthy = status.includes("🟢");
 
+  const handleToggleCharts = () => {
+    setShowCharts((prev) => !prev);
+  };
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-10">
       <RealtimeHeader
@@ -53,6 +60,28 @@ function RealtimeView() {
       />
 
       <RealtimeMetrics summary={summary} formatCurrency={formatCurrency} />
+
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={handleToggleCharts}
+          aria-expanded={showCharts}
+          className="gap-2 rounded-full border border-slate-200/70 bg-white/80 px-4 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:border-slate-800/70 dark:bg-slate-900/70 dark:text-slate-300"
+        >
+          <span aria-hidden="true">{showCharts ? "📄" : "📈"}</span>
+          {showCharts ? "Ver facturas" : "Ver gráficas"}
+        </Button>
+      </div>
+
+      {showCharts ? (
+        <RealtimeChartsSection
+          messages={messages}
+          summary={summary}
+          formatCurrency={formatCurrency}
+        />
+      ) : null}
 
       <RealtimeInvoicesSection
         activeFiltersCount={activeFiltersCount}
