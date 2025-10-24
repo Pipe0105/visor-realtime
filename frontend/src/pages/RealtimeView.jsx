@@ -22,6 +22,7 @@ function RealtimeView() {
     dailySalesSeries,
     isRefreshing,
     handleManualRefresh,
+    refreshHistory,
     activePanel,
     setActivePanel,
     areFiltersOpen,
@@ -52,6 +53,8 @@ function RealtimeView() {
     currentPage,
     setCurrentPage,
     messages,
+    historyStatus,
+    historyHasData,
   } = useRealtimeInvoices();
 
   const connectionHealthy = status.includes("🟢");
@@ -85,6 +88,11 @@ function RealtimeView() {
           formatCurrency={formatCurrency}
           dailySalesSeries={dailySalesSeries}
           hourlySalesHeatmap={hourlySalesHeatmap}
+          isLoadingHistory={historyStatus.loading}
+          historyError={historyStatus.error}
+          historyLastUpdated={historyStatus.lastUpdated}
+          historyHasData={historyHasData}
+          onRetryHistory={() => refreshHistory(filters.branch).catch(() => {})}
         />
       ) : null}
 

@@ -37,6 +37,11 @@ export function useRealtimeInvoices() {
   });
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
   const [dailySalesHistory, setDailySalesHistory] = useState([]);
+  const [historyStatus, setHistoryStatus] = useState({
+    loading: true,
+    error: null,
+    lastUpdated: null,
+  });
   const [salesForecast, setSalesForecast] = useState(null);
 
   const [activePanel, setActivePanel] = useState("facturas");
@@ -193,29 +198,59 @@ export function useRealtimeInvoices() {
     [filters.branch]
   );
 
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
     let cancelled = false;
 
-    loadDailySalesHistory()
-      .then((history) => {
-        if (!cancelled) {
+    const refreshHistory = useCallback(
+      async (branchValue) => {
+        setHistoryStatus((prev) => ({
+          ...prev,
+          loading: true,
+          error: null,
+        }));
+
+        try {
+          const history = await loadDailySalesHistory(branchValue);
+          if (!isMountedRef.current) {
+            return history;
+          }
           setDailySalesHistory(history);
+          setHistoryStatus({
+            loading: false,
+            error: null,
+            lastUpdated: new Date().toISOString(),
+          });
+          return history;
+        } catch (error) {
+          console.error("Error recargando historial", error);
+          if (!isMountedRef.current) {
+            throw error;
+          }
+          setHistoryStatus((prev) => ({
+            loading: false,
+            error:
+              error instanceof Error && error.message
+                ? error.message
+                : "No se pudo cargar el historial",
+            lastUpdated: prev.lastUpdated,
+          }));
+          throw error;
         }
-      })
-      .catch((error) => {
-        console.error("Error cargando historial de ventas", error);
-        if (!cancelled) {
-          setDailySalesHistory([]);
-        }
-      });
+      },
+      [loadDailySalesHistory]
+    );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [loadDailySalesHistory]);
+    useEffect(() => {
+      refreshHistory().catch(() => {});
+    }, [refreshHistory]);
 
-  useEffect(() => {
-    let cancelled = false;
+    useEffect(() => {
+      return () => {
+        isMountedRef.current = false;
+      };
+    }, []);
 
     loadSalesForecast(filters.branch)
       .then((forecast) => {
@@ -492,8 +527,7 @@ export function useRealtimeInvoices() {
       await loadInvoices().catch(() => {});
 
       try {
-        const history = await loadDailySalesHistory(filters.branch);
-        setDailySalesHistory(history);
+        await refreshHistory(filters.branch);
       } catch (error) {
         console.error(
           "Error actualizando historial durante el refresco",
@@ -940,6 +974,31 @@ export function useRealtimeInvoices() {
     };
   }, [availableBranches, filters.branch, messages]);
 
+  const historyHasData = useMemo(() => {
+    const hasBillingSeries =
+      Array.isArray(billingSeries?.series) && billingSeries.series.length > 0;
+    const hasDailySales =
+      Array.isArray(dailySalesSeries) && dailySalesSeries.length > 0;
+    const hasHeatmap = Boolean(hourlySalesHeatmap?.hasData);
+
+    if (hasBillingSeries || hasDailySales || hasHeatmap) {
+      return true;
+    }
+
+    if (
+      Array.isArray(hourlySalesHeatmap?.rows) &&
+      hourlySalesHeatmap.rows.some(
+        (row) =>
+          Array.isArray(row?.values) &&
+          row.values.some((value) => Number(value?.total) > 0)
+      )
+    ) {
+      return true;
+    }
+
+    return false;
+  }, [billingSeries, dailySalesSeries, hourlySalesHeatmap]);
+
   const totalsRange = useMemo(() => {
     if (messages.length === 0) {
       return { min: 0, max: 0 };
@@ -1210,6 +1269,7 @@ export function useRealtimeInvoices() {
     dailySalesSeries,
     isRefreshing,
     handleManualRefresh,
+    refreshHistory,
     activePanel,
     setActivePanel,
     areFiltersOpen,
@@ -1241,5 +1301,7 @@ export function useRealtimeInvoices() {
     setCurrentPage,
     salesForecast,
     hourlySalesHeatmap,
+    historyStatus,
+    historyHasData,
   };
 }
