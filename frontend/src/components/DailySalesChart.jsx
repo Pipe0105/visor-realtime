@@ -65,7 +65,7 @@ function DailySalesTooltipContent(props) {
     axisValue,
     dataIndex,
     dataset = [],
-    classes,
+    classes = {},
     sx,
     formatCurrency,
   } = props;

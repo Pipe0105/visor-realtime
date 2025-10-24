@@ -14,6 +14,8 @@ from app.schemas.invoice_schema import InvoiceCreate
 from app.services.daily_reset import ensure_daily_reset
 from app.services.file_reader import trigger_manual_rescan
 from app.services.realtime_manager import realtime_manager
+from app.utils.timezone import current_local_day_bounds
+
 
 router = APIRouter()
 
@@ -136,11 +138,8 @@ def get_daily_sales(
     ensure_daily_reset(db)
 
     normalized_branch = (branch or "all").strip()
-    reference_date = datetime.now()
-    start_date = (
-        reference_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        - timedelta(days=max(days - 1, 0))
-    )
+    _, start_date_today, _ = current_local_day_bounds()
+    start_date = start_date_today - timedelta(days=max(days - 1, 0))
     start_date_only = start_date.date()
 
     date_source = func.coalesce(Invoice.invoice_date, Invoice.created_at)
@@ -255,9 +254,11 @@ def get_today_invoices(
 
     ensure_daily_reset(db)
 
-    today = datetime.now().date()
-    tomorrow = today + timedelta(days=1)
-    filters = [Invoice.created_at >= today, Invoice.created_at < tomorrow]
+    _, today_start, tomorrow_start = current_local_day_bounds()
+    filters = [
+        Invoice.created_at >= today_start,
+        Invoice.created_at < tomorrow_start,
+    ]
 
     (
         total_invoices,
@@ -480,12 +481,11 @@ def get_today_forecast(
             },
         }
 
-    now = datetime.now()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    current_day_elapsed_seconds = max (
-        (now - today_start).total_seconds(), 0.0,
+    now, today_start, tomorrow_start = current_local_day_bounds()
+    current_day_elapsed_seconds = max(
+        (now - today_start).total_seconds(),
+        0.0,
     )
-    tomorrow_start = today_start + timedelta(days=1)
     history_start = today_start - timedelta(days=history_days)
     yesterday = today_start.date() - timedelta(days=1)
 

@@ -1,9 +1,7 @@
 from __future__ import annotations
-
-from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-
+from app.utils.timezone import midnight_today
 from app.models.branch import Branch
 from app.models.daily_summary import DailySalesSummary
 from app.models.invoice import Invoice
@@ -29,12 +27,11 @@ def _branch_code(branch_map, branch_id) -> str:
 def ensure_daily_reset(db: Session) -> bool:
     """Guarda resúmenes diarios y elimina datos anteriores al día actual."""
 
-    now = datetime.now().astimezone()
-    midnight_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight_today_local = midnight_today()
 
     stale_exists = (
         db.query(Invoice.id)
-        .filter(Invoice.created_at < midnight_today)
+        .filter(Invoice.created_at < midnight_today_local)
         .limit(1)
         .first()
     )
@@ -59,7 +56,8 @@ def ensure_daily_reset(db: Session) -> bool:
             func.coalesce(func.sum(Invoice.total), 0).label("total_sales"),
             func.coalesce(func.sum(Invoice.subtotal), 0).label("total_net_sales"),
         )
-        .filter(Invoice.created_at < midnight_today)
+        .filter(Invoice.created_at < midnight_today_local)
+
         .group_by(func.date_trunc("day", date_source), Invoice.branch_id)
         .all()
     )
@@ -96,14 +94,15 @@ def ensure_daily_reset(db: Session) -> bool:
                     )
                 )
 
-        stale_invoice_ids = select(Invoice.id).filter(Invoice.created_at < midnight_today)
+        stale_invoice_ids = select(Invoice.id).filter(
+            Invoice.created_at < midnight_today_local
+        )
 
         db.query(InvoiceItem).filter(
             InvoiceItem.invoice_id.in_(stale_invoice_ids)
         ).delete(synchronize_session=False)
 
-        db.query(Invoice).filter(Invoice.created_at < midnight_today).delete(
-            synchronize_session=False
+        db.query(Invoice).filter(Invoice.created_at < midnight_today_local).delete(            synchronize_session=False
         )
 
         db.commit()

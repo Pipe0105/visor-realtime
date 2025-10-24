@@ -20,6 +20,8 @@ class Settings:
     INVOICE_PATH: str = os.getenv("INVOICE_PATH", r"\\192.168.32.100\unfe-pdv")
     INVOICE_FILE_PREFIX: str = os.getenv("INVOICE_FILE_PREFIX", "010012W")
     INVOICE_POLL_INTERVAL: float = float(os.getenv("INVOICE_POLL_INTERVAL", "2"))
+    LOCAL_TIMEZONE: str = os.getenv("LOCAL_TIMEZONE", "America/Bogota")
+
     _cors_allowed_origins: str = os.getenv("CORS_ALLOWED_ORIGINS", "*")
     CORS_ALLOW_CREDENTIALS: bool = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
 

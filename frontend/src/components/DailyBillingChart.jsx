@@ -80,7 +80,7 @@ function BillingAxisTooltipContent(props) {
   const {
     axisValue,
     dataIndex,
-    classes,
+    classes = {},
     sx,
     dataset = [],
     currencyFormatter,
