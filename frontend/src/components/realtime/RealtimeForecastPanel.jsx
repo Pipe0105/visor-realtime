@@ -9,6 +9,8 @@ import {
 import { formatCurrency as formatCurrencyDefault } from "../../lib/invoiceUtils";
 
 const METHOD_LABELS = {
+  daily_sales_regression: "Regresión multivariable",
+
   previous_day_first_chunk_ratio: "ajuste con el dia anterior",
   first_chunk_ratio: "Ritmo de las primeras facturas",
   historical_average: "Promedio histórico",
@@ -53,6 +55,10 @@ export default function RealtimeForecastPanel({
         previousNetTotal: forecastRaw.previous_net_total ?? 0,
         previousInvoiceCount: forecastRaw.previous_invoice_count ?? 0,
         previousDate: forecastRaw.previous_date ?? null,
+        modelHistorySamples: forecastRaw.model_History_Samples ?? 0,
+        modelPartialSales: forecastRaw.model_Partial_Sales ?? null,
+        modelInvoiceCount: forecastRaw.model_Invoice_Count ?? null,
+        modelPrefiction: forecastRaw.model_prediction ?? null,
       }
     : null;
 
@@ -116,8 +122,10 @@ export default function RealtimeForecastPanel({
           Pronóstico detallado {branchLabel ? `· ${branchLabel}` : ""}
         </CardTitle>
         <CardDescription>
-          Estimación basada en las primeras {todayInfo?.firstChunkInvoices || 0}{" "}
-          facturas del día y el comportamiento histórico más reciente.
+          Estimación basada en las ventas parciales acumuladas, las facturas
+          procesadas (
+          {forecast?.modelInvoiceCount ?? todayInfo?.invoiceCount ?? 0}) y el
+          comportamiento histórico más reciente.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6 lg:grid-cols-2">
@@ -194,6 +202,22 @@ export default function RealtimeForecastPanel({
               </dt>
               <dd className="text-base font-medium text-slate-900 dark:text-foreground">
                 {forecast.historyDays}
+              </dd>
+            </div>
+            <div className="space-y-1">
+              <dt className="font-semibold text-slate-600 dark:text-slate-300">
+                Facturas procesadas hoy
+              </dt>
+              <dd className="text-base font-medium text-slate-900 dark:text-foreground">
+                {forecast?.modelInvoiceCount ?? todayInfo?.invoiceCount ?? 0}
+              </dd>
+            </div>
+            <div className="space-y-1">
+              <dt className="font-semibold text-slate-600 dark:text-slate-300">
+                Muestras del modelo
+              </dt>
+              <dd className="text-base font-medium text-slate-900 dark:text-foreground">
+                {forecast.modelHistorySamples}
               </dd>
             </div>
           </dl>

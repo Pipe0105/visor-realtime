@@ -20,14 +20,6 @@ router = APIRouter()
 FIRST_CHUNK_INVOICES = 100
 DEFAULT_FORECAST_HISTORY_DAYS = 14
 
-def _current_day_bounds():
-    """Return the current time along with the start and end of the local day."""
-
-    now = datetime.now().astimezone()
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_of_day = start_of_day + timedelta(days=1)
-    return now, start_of_day, end_of_day
-
 
 @router.get("/")
 def get_invoices(db: Session = Depends(get_db)):
@@ -144,8 +136,11 @@ def get_daily_sales(
     ensure_daily_reset(db)
 
     normalized_branch = (branch or "all").strip()
-    _, start_date_today, _ = _current_day_bounds()
-    start_date = start_date_today - timedelta(days=max(days - 1, 0))
+    reference_date = datetime.now()
+    start_date = (
+        reference_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        - timedelta(days=max(days - 1, 0))
+    )
     start_date_only = start_date.date()
 
     date_source = func.coalesce(Invoice.invoice_date, Invoice.created_at)
@@ -260,11 +255,9 @@ def get_today_invoices(
 
     ensure_daily_reset(db)
 
-    _, today_start, tomorrow_start = _current_day_bounds()
-    filters = [
-        Invoice.created_at >= today_start,
-        Invoice.created_at < tomorrow_start,
-    ]
+    today = datetime.now().date()
+    tomorrow = today + timedelta(days=1)
+    filters = [Invoice.created_at >= today, Invoice.created_at < tomorrow]
 
     (
         total_invoices,
@@ -487,11 +480,12 @@ def get_today_forecast(
             },
         }
 
-    now, today_start, tomorrow_start = _current_day_bounds()
-    current_day_elapsed_seconds = max(
-        (now - today_start).total_seconds(),
-        0.0,
+    now = datetime.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    current_day_elapsed_seconds = max (
+        (now - today_start).total_seconds(), 0.0,
     )
+    tomorrow_start = today_start + timedelta(days=1)
     history_start = today_start - timedelta(days=history_days)
     yesterday = today_start.date() - timedelta(days=1)
 

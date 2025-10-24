@@ -2,6 +2,17 @@ import React from "react";
 import MetricCard from "../MetricCard";
 import { formatCurrency as formatCurrencyDefault } from "../../lib/invoiceUtils";
 
+const METHOD_SHORT_LABELS = {
+  daily_sales_regression: "Modelo: regresión multivariable",
+  previous_day_first_chunk_ratio: "Modelo: ajuste con el día anterior",
+  first_chunk_ratio: "Modelo: ritmo primeras facturas",
+  historical_average: "Modelo: promedio histórico",
+  current_total_only: "Modelo: total actual",
+  previous_total_only: "Modelo: total día anterior",
+  blended_historical_estimate: "Modelo: estimación combinada",
+  time_of_day_ratio: "Modelo: proyección por avance del día",
+};
+
 export default function RealtimeMetrics({ summary, formatCurrency }) {
   const currencyFormatter = formatCurrency ?? formatCurrencyDefault;
   const forecast = summary?.forecast ?? null;
@@ -22,6 +33,12 @@ export default function RealtimeMetrics({ summary, formatCurrency }) {
     }
 
     const parts = [];
+    if (forecast.method) {
+      const methodSummary = METHOD_SHORT_LABELS[forecast.method];
+      if (methodSummary) {
+        parts.push(methodSummary);
+      }
+    }
     if (forecast.previousTotal) {
       parts.push(
         `Total día anterior: ${currencyFormatter(
