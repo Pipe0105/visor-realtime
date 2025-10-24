@@ -82,6 +82,10 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
             branch_code = branch.code
         else:
             branch_code = str(invoice.branch_id)
+            
+    created_timestamp = (
+        invoice.created_at.isoformat() if invoice.created_at else datetime.now().isoformat()
+    )
 
     payload = {
         "event": "new_invoice",
@@ -93,6 +97,8 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
         if invoice.invoice_date
         else None,
         "branch": branch_code,
+        "timestamp": created_timestamp,
+        "created_at": created_timestamp,
     }
 
     loop = realtime_manager.loop

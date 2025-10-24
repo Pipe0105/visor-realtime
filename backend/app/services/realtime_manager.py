@@ -15,12 +15,29 @@ class RealtimeManager:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         
     @staticmethod
-    def _resolve_iso_timestamp(message: dict) -> str:
+    def _to_iso(value) -> Optional[str]:
+        if value is None:
+            return None
+
+        if isinstance(value, datetime):
+            return value.isoformat()
+
+        if isinstance(value, (int, float)):
+            try:
+                return datetime.fromtimestamp(value).isoformat()
+            except (OverflowError, OSError, ValueError):
+                return str(value)
+
+        return str(value)
+
+    @classmethod
+    def _resolve_iso_timestamp(cls, message: dict) -> str:
         """Obtiene la marca de tiempo preferida para un mensaje."""
 
-        candidate = message.get("invoice_date") or message.get("timestamp")
-        if candidate:
-            return candidate
+        for key in ("timestamp", "created_at", "invoice_date", "issued_at"):
+            resolved = cls._to_iso(message.get(key))
+            if resolved:
+                return resolved
         return datetime.now().isoformat()
 
     @classmethod

@@ -92,17 +92,17 @@ function buildMinuteDataset(messages = []) {
     );
   });
 
-  const dataset = [];
-
-  for (let index = 0; index <= totalMinutes; index += 1) {
-    const timestamp = new Date(start.getTime() + index * MINUTE_IN_MS);
-    dataset.push({
-      timestamp,
-      minuteIndex: index,
-      label: timestamp.toISOString(),
-      total: totalsByMinute.get(index) ?? 0,
+  const dataset = Array.from(totalsByMinute.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([minuteIndex, total]) => {
+      const timestamp = new Date(start.getTime() + minuteIndex * MINUTE_IN_MS);
+      return {
+        timestamp,
+        minuteIndex,
+        label: timestamp.toISOString(),
+        total,
+      };
     });
-  }
 
   return {
     dataset,
@@ -439,10 +439,7 @@ export default function RealtimeChartsSection({
                 tooltip={{ trigger: "axis" }}
                 slotProps={{ legend: { hidden: true } }}
               />
-              <div className="pointer-events-none absolute inset-x-4 bottom-4 hidden text-xs text-slate-500 md:block dark:text-slate-400">
-                Usa la rueda del ratón para hacer zoom y mantén presionado el
-                clic izquierdo para desplazarte.
-              </div>
+              <div className="pointer-events-none absolute inset-x-4 bottom-4 hidden text-xs text-slate-500 md:block dark:text-slate-400"></div>
             </div>
           ) : (
             <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-200/60 bg-slate-50 text-sm text-slate-500 dark:border-slate-800/60 dark:bg-slate-900/40 dark:text-slate-400">

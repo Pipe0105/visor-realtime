@@ -129,7 +129,7 @@ export function normalizeInvoice(invoice) {
   }
 
   const normalizedTimestamp = normalizeTimestamp(
-    invoice.invoice_date ?? invoice.timestamp ?? invoice.created_at ?? null
+    invoice.timestamp ?? invoice.created_at ?? invoice.invoice_date ?? null
   );
 
   const base = { ...invoice };
@@ -161,7 +161,7 @@ export function getInvoiceIdentifier(invoice) {
   }
 
   const normalizedTimestamp = normalizeTimestamp(
-    invoice.timestamp ?? invoice.invoice_date ?? invoice.created_at ?? null
+    invoice.timestamp ?? invoice.created_at ?? invoice.invoice_date ?? null
   );
 
   if (invoice.invoice_number && normalizedTimestamp) {
@@ -199,7 +199,7 @@ function getInvoiceTimestampValue(invoice) {
   }
 
   const parsedTimestamp = parseInvoiceTimestamp(
-    invoice.invoice_date ?? invoice.timestamp ?? invoice.created_at ?? null
+    invoice.timestamp ?? invoice.created_at ?? invoice.invoice_date ?? null
   );
 
   if (parsedTimestamp) {

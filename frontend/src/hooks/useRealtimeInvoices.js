@@ -228,9 +228,9 @@ export function useRealtimeInvoices() {
       const today = new Date().toISOString().slice(0, 10);
 
       const messageDay =
-        getInvoiceDay(normalized.invoice_date) ||
         getInvoiceDay(normalized.timestamp) ||
         getInvoiceDay(normalized.created_at) ||
+        getInvoiceDay(normalized.invoice_date) ||
         today;
 
       const invoiceTotal = toNumber(data.total);
@@ -241,8 +241,8 @@ export function useRealtimeInvoices() {
       const normalizedId = getInvoiceIdentifier(normalized);
       const normalizedTimestampForMatch = normalizeTimestamp(
         normalized.timestamp ??
-          normalized.invoice_date ??
           normalized.created_at ??
+          normalized.invoice_date ??
           null
       );
 
@@ -250,9 +250,9 @@ export function useRealtimeInvoices() {
         const safePrev = prev.filter(isInvoiceRecord);
 
         const previousDay = safePrev[0]
-          ? getInvoiceDay(safePrev[0].invoice_date) ||
-            getInvoiceDay(safePrev[0].timestamp) ||
+          ? getInvoiceDay(safePrev[0].timestamp) ||
             getInvoiceDay(safePrev[0].created_at) ||
+            getInvoiceDay(safePrev[0].invoice_date) ||
             today
           : today;
 
@@ -272,7 +272,7 @@ export function useRealtimeInvoices() {
           }
 
           const itemTimestampForMatch = normalizeTimestamp(
-            item.timestamp ?? item.invoice_date ?? item.created_at ?? null
+            item.timestamp ?? item.created_at ?? item.invoice_date ?? null
           );
 
           return (

@@ -237,6 +237,9 @@ def process_file(file_path: str):
         print(f"💾 Factura {invoice.number} guardada con éxito ({len(items)} ítems)")
 
         # === Enviar evento realtime ===
+        created_timestamp = (
+            invoice.created_at.isoformat() if invoice.created_at else datetime.now().isoformat()
+        )
         payload = {
             "event": "new_invoice",
             "invoice_number": invoice.number,
@@ -245,6 +248,8 @@ def process_file(file_path: str):
             "subtotal": float(invoice.subtotal or 0),
             "file": filename,
             "invoice_date": invoice.invoice_date.isoformat() if invoice.invoice_date else None,
+            "timestamp": created_timestamp,
+            "created_at": created_timestamp,
         }
 
         loop = realtime_manager.loop
