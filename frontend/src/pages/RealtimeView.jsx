@@ -1,10 +1,13 @@
-import React, { useState } from "react";
+import React, { Suspense, useState, lazy } from "react";
+
 import RealtimeHeader from "../components/realtime/RealtimeHeader";
 import RealtimeInvoicesSection from "../components/realtime/RealtimeInvoicesSection";
 import RealtimeMetrics from "../components/realtime/RealtimeMetrics";
 import { useRealtimeInvoices } from "../hooks/useRealtimeInvoices";
 import { formatCurrency } from "../lib/invoiceUtils";
-import RealtimeChartsSection from "../components/realtime/RealtimeChartsSection";
+const RealtimeChartsSection = lazy(() =>
+  import("../components/realtime/RealtimeChartsSection")
+);
 import { Button } from "../components/button";
 
 function RealtimeView() {
@@ -79,11 +82,19 @@ function RealtimeView() {
       </div>
 
       {showCharts ? (
-        <RealtimeChartsSection
-          messages={messages}
-          summary={summary}
-          formatCurrency={formatCurrency}
-        />
+        <Suspense
+          fallback={
+            <div className="grid gap-4 rounded-2xl border border-slate-200/60 bg-white/80 p-6 text-sm text-slate-500 shadow-sm dark:border-slate-800/60 dark:bg-slate-900/60 dark:text-slate-300">
+              Cargando gráficas en tiempo real...
+            </div>
+          }
+        >
+          <RealtimeChartsSection
+            messages={messages}
+            summary={summary}
+            formatCurrency={formatCurrency}
+          />
+        </Suspense>
       ) : (
         <RealtimeInvoicesSection
           activeFiltersCount={activeFiltersCount}
