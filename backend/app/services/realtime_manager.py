@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Iterable
 from fastapi import WebSocket
 import asyncio
 import json
@@ -32,6 +32,86 @@ class RealtimeManager:
             return datetime.fromisoformat(iso_value).date()
         except (TypeError, ValueError):
             return None
+        
+    @classmethod
+    def _message_identifier(cls, message: dict) -> Optional[str]:
+        """Genera un identificador estable para deduplicar mensajes."""
+
+        if not isinstance(message, dict):
+            return None
+
+        direct_id = (
+            message.get("invoice_id")
+            or message.get("id")
+            or message.get("uuid")
+        )
+        if direct_id:
+            return str(direct_id)
+
+        invoice_number = message.get("invoice_number") or message.get("number")
+        timestamp = (
+            message.get("timestamp")
+            or message.get("invoice_date")
+            or message.get("created_at")
+        )
+
+        normalized_timestamp: Optional[str] = None
+        if isinstance(timestamp, datetime):
+            normalized_timestamp = timestamp.isoformat()
+        elif isinstance(timestamp, (int, float)):
+            try:
+                normalized_timestamp = datetime.fromtimestamp(timestamp).isoformat()
+            except (OverflowError, OSError, ValueError):
+                normalized_timestamp = str(timestamp)
+        elif isinstance(timestamp, str):
+            normalized_timestamp = timestamp
+
+        if invoice_number and normalized_timestamp:
+            return f"{invoice_number}-{normalized_timestamp}"
+
+        if invoice_number:
+            return str(invoice_number)
+
+        if normalized_timestamp:
+            return normalized_timestamp
+
+        # último recurso: usa timestamp resuelto actual
+        resolved = cls._resolve_iso_timestamp(message)
+        return resolved
+
+    @classmethod
+    def _clean_history(cls, messages: Iterable[dict]) -> List[dict]:
+        """Elimina duplicados manteniendo solo el registro más reciente de cada factura."""
+
+        today = datetime.now().date()
+        cleaned_reversed: List[dict] = []
+        seen: set[str] = set()
+
+        for entry in reversed(list(messages)):
+            if not isinstance(entry, dict):
+                continue
+
+            if cls._message_date(entry) != today:
+                continue
+
+            identifier = cls._message_identifier(entry)
+            if identifier and identifier in seen:
+                continue
+
+            if identifier:
+                seen.add(identifier)
+
+            cleaned_reversed.append(entry)
+
+        cleaned_reversed.reverse()
+        return cleaned_reversed
+
+    def _store_daily_message(self, branch: str, message: dict) -> None:
+        """Guarda un mensaje en memoria eliminando duplicados y valores antiguos."""
+
+        history = self.daily_messages.get(branch, [])
+        history.append(message)
+        self.daily_messages[branch] = self._clean_history(history)
 
     def set_loop(self, loop: asyncio.AbstractEventLoop):
         """Guarda el event loop principal para reutilizarlo en hilos secundarios."""
@@ -49,6 +129,9 @@ class RealtimeManager:
 
         # Enviar facturas del día actual al conectar
         today = datetime.now().date()
+        self.daily_messages[branch] = self._clean_history(
+            self.daily_messages.get(branch, [])
+        )
         for msg in list(self.daily_messages[branch]):
             if self._message_date(msg) != today:
                 continue
@@ -75,13 +158,7 @@ class RealtimeManager:
 
         if branch not in self.daily_messages:
             self.daily_messages[branch] = []
-        self.daily_messages[branch].append(message)
-
-        # eliminar mensajes de días anteriores
-        today = datetime.now().date()
-        self.daily_messages[branch] = [
-            m for m in self.daily_messages[branch]
-            if self._message_date(m) == today        ]
+        self._store_daily_message(branch, message)
 
         if branch not in self.connections:
             return

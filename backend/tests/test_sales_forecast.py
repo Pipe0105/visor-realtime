@@ -33,7 +33,7 @@ def _build_history_samples():
 
 def test_estimate_daily_sales_total_uses_regression_coefficients():
     history = _build_history_samples()
-    expected_total = 500 + 1.25 * 9550 +12 * 48 + 0.1 * 4180
+    expected_total = 500 + 1.25 * 950 + 12 * 48 + 0.1 * 4180
     
     result = estimate_daily_sales_total(
         partial_sales= 950,
