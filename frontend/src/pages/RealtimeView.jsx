@@ -45,6 +45,7 @@ function RealtimeView() {
     currentPage,
     setCurrentPage,
     messages,
+    allMessages,
   } = useRealtimeInvoices();
 
   const connectionHealthy = status.includes("🟢");
@@ -90,7 +91,7 @@ function RealtimeView() {
           }
         >
           <RealtimeChartsSection
-            messages={messages}
+            messages={allMessages}
             summary={summary}
             formatCurrency={formatCurrency}
           />

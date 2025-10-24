@@ -11,12 +11,13 @@ import {
 } from "../lib/invoiceUtils";
 
 const PAGE_SIZE = 100;
+const MAX_VISIBLE_INVOICES = 700;
 
 const isInvoiceRecord = (value) => value && typeof value === "object";
 
 export function useRealtimeInvoices() {
   const [status, setStatus] = useState("Desconectado 🔴");
-  const [messages, setMessages] = useState([]);
+  const [allMessages, setAllMessages] = useState([]);
   const [selectedInvoices, setSelectedInvoices] = useState(null);
   const [invoiceItems, setInvoicesItems] = useState([]);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -47,6 +48,11 @@ export function useRealtimeInvoices() {
   const intentionalCloseRef = useRef(false);
   const pendingManualReconnectRef = useRef(false);
 
+  const messages = useMemo(
+    () => allMessages.slice(0, MAX_VISIBLE_INVOICES),
+    [allMessages]
+  );
+
   const loadInvoices = useCallback(async () => {
     try {
       const res = await apiFetch(`/invoices/today`);
@@ -58,7 +64,8 @@ export function useRealtimeInvoices() {
           .map(normalizeInvoice)
           .filter(isInvoiceRecord);
         const sortedInvoices = sortInvoicesByTimestampDesc(normalizedInvoices);
-        setMessages(sortedInvoices);
+        setAllMessages(sortedInvoices);
+
         knownInvoicesRef.current = new Set(
           sortedInvoices
             .map((invoice) => getInvoiceIdentifier(invoice))
@@ -86,9 +93,67 @@ export function useRealtimeInvoices() {
         ? data.invoices.map(normalizeInvoice).filter(isInvoiceRecord)
         : [];
 
-      const sortedInvoices = sortInvoicesByTimestampDesc(normalizedInvoices);
+      let allInvoices = [...normalizedInvoices];
+      const totalInvoicesCount = Math.trunc(toNumber(data.total_invoices));
+      const pageLimit = Math.max(
+        1,
+        Math.trunc(toNumber(data.limit ?? normalizedInvoices.length ?? 0)) ||
+          MAX_VISIBLE_INVOICES
+      );
+      let nextOffset = Math.max(0, Math.trunc(toNumber(data.offset ?? 0)));
+      nextOffset += normalizedInvoices.length;
 
-      setMessages(sortedInvoices);
+      while (
+        Number.isFinite(totalInvoicesCount) &&
+        totalInvoicesCount > 0 &&
+        allInvoices.length < totalInvoicesCount
+      ) {
+        const params = new URLSearchParams();
+        params.set("offset", String(nextOffset));
+        params.set("limit", String(pageLimit));
+
+        let nextPagePayload = null;
+        try {
+          const nextResponse = await apiFetch(
+            `/invoices/today?${params.toString()}`
+          );
+          if (!nextResponse.ok) {
+            break;
+          }
+          nextPagePayload = await nextResponse.json();
+        } catch (error) {
+          console.error("Error cargando página adicional de facturas", error);
+          break;
+        }
+
+        const nextRawInvoices = Array.isArray(nextPagePayload)
+          ? nextPagePayload
+          : Array.isArray(nextPagePayload?.invoices)
+          ? nextPagePayload.invoices
+          : [];
+
+        if (nextRawInvoices.length === 0) {
+          break;
+        }
+
+        const nextNormalized = nextRawInvoices
+          .map(normalizeInvoice)
+          .filter(isInvoiceRecord);
+
+        if (nextNormalized.length === 0) {
+          break;
+        }
+
+        allInvoices = allInvoices.concat(nextNormalized);
+        nextOffset += nextNormalized.length;
+        if (nextNormalized.length < pageLimit) {
+          break;
+        }
+      }
+
+      const sortedInvoices = sortInvoicesByTimestampDesc(allInvoices);
+
+      setAllMessages(sortedInvoices);
       knownInvoicesRef.current = new Set(
         sortedInvoices
           .map((invoice) => getInvoiceIdentifier(invoice))
@@ -98,20 +163,20 @@ export function useRealtimeInvoices() {
       const totalNetSales = toNumber(
         data.total_net_sales ?? data.total_without_taxes ?? data.total_sales
       );
-      const totalInvoices = Math.trunc(toNumber(data.total_invoices));
       const averageTicket = toNumber(
-        data.average_ticket ?? (totalInvoices ? totalSales / totalInvoices : 0)
+        data.average_ticket ??
+          (totalInvoicesCount ? totalSales / totalInvoicesCount : 0)
       );
       setDailySummary({
         totalSales,
         totalNetSales,
-        totalInvoices,
+        totalInvoices: totalInvoicesCount,
         averageTicket,
       });
       return sortedInvoices;
     } catch (err) {
       console.error("Error cargando facturas", err);
-      setMessages([]);
+      setAllMessages([]);
       knownInvoicesRef.current = new Set();
       setDailySummary({
         totalSales: 0,
@@ -246,7 +311,7 @@ export function useRealtimeInvoices() {
           null
       );
 
-      setMessages((prev) => {
+      setAllMessages((prev) => {
         const safePrev = prev.filter(isInvoiceRecord);
 
         const previousDay = safePrev[0]
@@ -766,6 +831,9 @@ export function useRealtimeInvoices() {
         messages.length === 1 ? "factura" : "facturas"
       }`;
     }
+    if (dailySummary.totalInvoices > messages.length) {
+      return `${messages.length} de ${dailySummary.totalInvoices} facturas`;
+    }
     return `${messages.length} ${
       messages.length === 1 ? "factura" : "facturas"
     } hoy`;
@@ -814,6 +882,7 @@ export function useRealtimeInvoices() {
 
   return {
     status,
+    allMessages,
     messages,
     summary,
     isRefreshing,
