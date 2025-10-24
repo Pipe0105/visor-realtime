@@ -338,6 +338,8 @@ export default function DailyBillingChart({
   const [visibleDomain, setVisibleDomain] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
 
+  const hasData = Array.isArray(data) && data.length > 0;
+
   useEffect(() => {
     const element = containerRef.current;
     if (!element) {
@@ -360,7 +362,7 @@ export default function DailyBillingChart({
     observer.observe(element);
 
     return () => observer.disconnect();
-  }, []);
+  }, [hasData]);
 
   const formatter = useMemo(
     () => getFormatter(formatCurrency),

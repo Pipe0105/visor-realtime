@@ -32,8 +32,20 @@ function toTimestamp(dateString) {
   if (!dateString) {
     return NaN;
   }
-  const parsed = new Date(`${dateString}T00:00:00`);
-  return parsed.getTime();
+
+  const raw = String(dateString).trim();
+  if (!raw) {
+    return NaN;
+  }
+
+  const candidate = raw.includes("T") ? raw : `${raw}T00:00:00`;
+  const parsed = new Date(candidate);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.getTime();
+  }
+
+  const fallback = new Date(raw);
+  return fallback.getTime();
 }
 
 function getDayLabel(value) {
@@ -156,6 +168,31 @@ export default function DailySalesChart({ data }) {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(FALLBACK_WIDTH);
 
+  const dataset = useMemo(() => {
+    if (!Array.isArray(data) || data.length === 0) {
+      return [];
+    }
+
+    return [...data]
+      .filter((item) => item && item.date)
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+      .map((item) => {
+        const timestamp = toTimestamp(item.date);
+        const total = Number(item.total) || 0;
+        const cumulative = Number(item.cumulative) || 0;
+        return {
+          date: item.date,
+          timestamp,
+          total,
+          cumulative,
+          label: Number.isFinite(timestamp) ? getDayLabel(timestamp) : "",
+        };
+      })
+      .filter((item) => Number.isFinite(item.timestamp));
+  }, [data]);
+
+  const hasDataset = dataset.length > 0;
+
   useEffect(() => {
     const element = containerRef.current;
     if (!element) {
@@ -177,29 +214,7 @@ export default function DailySalesChart({ data }) {
     const observer = new ResizeObserver(updateWidth);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
-
-  const dataset = useMemo(() => {
-    if (!Array.isArray(data) || data.length === 0) {
-      return [];
-    }
-
-    return [...data]
-      .filter((item) => item && item.date)
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-      .map((item) => {
-        const timestamp = toTimestamp(item.date);
-        const total = Number(item.total) || 0;
-        const cumulative = Number(item.cumulative) || 0;
-        return {
-          date: item.date,
-          timestamp,
-          total,
-          cumulative,
-          label: getDayLabel(timestamp),
-        };
-      });
-  }, [data]);
+  }, [hasDataset]);
 
   return (
     <Card className="w-full border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
