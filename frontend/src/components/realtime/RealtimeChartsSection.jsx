@@ -120,6 +120,44 @@ function buildIntervalDataset(messages = [], intervalMinutes = 1) {
   };
 }
 
+function buildHourlyHeatmapDataset(messages = []) {
+  const totalsByHour = new Map();
+
+  messages.forEach((invoice) => {
+    const timestamp =
+      parseInvoiceTimestamp(
+        invoice?.invoice_date ?? invoice?.timestamp ?? invoice?.created_at
+      ) ?? null;
+
+    if (!timestamp) {
+      return;
+    }
+
+    const totalValue = toNumber(invoice?.total);
+
+    if (!Number.isFinite(totalValue)) {
+      return;
+    }
+
+    const hour = timestamp.getHours();
+    totalsByHour.set(hour, (totalsByHour.get(hour) ?? 0) + totalValue);
+  });
+
+  const hours = [];
+  for (let hour = START_HOUR; hour <= END_HOUR; hour += 1) {
+    hours.push(hour);
+  }
+
+  return hours.map((hour) => {
+    const label = `${hour.toString().padStart(2, "0")}:00`;
+    return {
+      hour,
+      label,
+      value: totalsByHour.get(hour) ?? 0,
+    };
+  });
+}
+
 function useElementWidth(ref) {
   const [width, setWidth] = useState(0);
 
@@ -161,11 +199,16 @@ export default function RealtimeChartsSection({
   summary = null,
   formatCurrency = formatCurrencyDefault,
 }) {
-  const [aggregationMinutes, setAggregationMinutes] = useState(1);
+  const [aggregationMinutes, setAggregationMinutes] = useState(5);
 
   const { dataset: salesDataset, domain } = useMemo(
     () => buildIntervalDataset(messages, aggregationMinutes),
     [messages, aggregationMinutes]
+  );
+
+  const hourlyHeatmapDataset = useMemo(
+    () => buildHourlyHeatmapDataset(messages),
+    [messages]
   );
 
   const totalSales = summary?.total ?? 0;
@@ -417,6 +460,35 @@ export default function RealtimeChartsSection({
     setViewDomain((previous) => clampDomain(previous.start, previous.end));
   }, [clampDomain]);
 
+  const heatmapMaxValue = useMemo(
+    () =>
+      hourlyHeatmapDataset.reduce(
+        (maxValue, entry) => Math.max(maxValue, entry?.value ?? 0),
+        0
+      ),
+    [hourlyHeatmapDataset]
+  );
+
+  const getHeatmapColor = useCallback(
+    (value) => {
+      if (!Number.isFinite(value) || heatmapMaxValue <= 0) {
+        return "rgba(14, 165, 233, 0.12)";
+      }
+
+      const ratio = Math.min(Math.max(value / heatmapMaxValue, 0), 1);
+      const startColor = [224, 242, 254];
+      const endColor = [7, 89, 133];
+
+      const channel = startColor.map((start, index) => {
+        const end = endColor[index];
+        return Math.round(start + (end - start) * ratio);
+      });
+
+      return `rgb(${channel[0]}, ${channel[1]}, ${channel[2]})`;
+    },
+    [heatmapMaxValue]
+  );
+
   return (
     <section
       className="grid gap-4 rounded-2xl border border-slate-200/60 bg-white/80 p-4 shadow-sm backdrop-blur dark:border-slate-800/60 dark:bg-slate-900/60"
@@ -523,6 +595,72 @@ export default function RealtimeChartsSection({
                 slotProps={{ legend: { hidden: true } }}
               />
               <div className="pointer-events-none absolute inset-x-4 bottom-4 hidden text-xs text-slate-500 md:block dark:text-slate-400"></div>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-200/60 bg-slate-50 text-sm text-slate-500 dark:border-slate-800/60 dark:bg-slate-900/40 dark:text-slate-400">
+              Aún no hay facturas registradas en este rango horario.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border border-slate-200 bg-white/90 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+        <CardHeader>
+          <CardTitle className="text-base font-semibold">
+            Intensidad de ventas por hora
+          </CardTitle>
+          <CardDescription>
+            Observa en qué franjas horarias se concentra el mayor volumen de
+            ventas durante la jornada.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {hasInvoices ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                <span>
+                  Colores más intensos indican mayores montos vendidos.
+                </span>
+                <span>Pico: {formatCurrency(heatmapMaxValue ?? 0)}</span>
+              </div>
+              <div
+                role="list"
+                className="grid gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
+              >
+                {hourlyHeatmapDataset.map((entry) => {
+                  const backgroundColor = getHeatmapColor(entry.value);
+                  const ratio =
+                    heatmapMaxValue > 0 ? entry.value / heatmapMaxValue : 0;
+                  const intensityClass =
+                    ratio > 0.6
+                      ? "text-white dark:text-white"
+                      : "text-slate-900 dark:text-slate-100";
+                  const sublabelClass =
+                    ratio > 0.6
+                      ? "text-white/70"
+                      : "text-slate-900/70 dark:text-slate-200/70";
+
+                  return (
+                    <div
+                      key={entry.hour}
+                      role="listitem"
+                      className={`flex flex-col gap-1 rounded-lg border border-slate-200/60 p-2 text-xs font-semibold shadow-sm transition hover:shadow-md dark:border-slate-800/70 ${intensityClass}`}
+                      style={{
+                        backgroundColor,
+                      }}
+                    >
+                      <span
+                        className={`text-[10px] font-medium uppercase tracking-[0.2em] ${sublabelClass}`}
+                      >
+                        {entry.label}
+                      </span>
+                      <span className="text-sm">
+                        {formatCurrency(entry.value ?? 0)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : (
             <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-200/60 bg-slate-50 text-sm text-slate-500 dark:border-slate-800/60 dark:bg-slate-900/40 dark:text-slate-400">
