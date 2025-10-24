@@ -111,11 +111,31 @@ function buildIntervalDataset(messages = [], intervalMinutes = 1) {
       };
     });
 
+  const startTime = start.getTime();
+  const maxEndTime = end.getTime();
+  const minWindowMs =
+    Math.max(MIN_WINDOW_MINUTES, intervalMinutes) * MINUTE_IN_MS;
+
+  let effectiveEnd = Math.min(startTime + minWindowMs, maxEndTime);
+
+  if (dataset.length > 0) {
+    const lastTimestamp =
+      dataset[dataset.length - 1]?.timestamp?.getTime?.() ?? null;
+
+    if (Number.isFinite(lastTimestamp)) {
+      const paddedLastTimestamp = Math.min(
+        maxEndTime,
+        lastTimestamp + intervalMs
+      );
+      effectiveEnd = Math.max(effectiveEnd, paddedLastTimestamp);
+    }
+  }
+
   return {
     dataset,
     domain: {
-      start: start.getTime(),
-      end: end.getTime(),
+      start: startTime,
+      end: effectiveEnd,
     },
   };
 }
