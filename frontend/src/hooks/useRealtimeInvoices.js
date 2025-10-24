@@ -11,7 +11,6 @@ import {
 } from "../lib/invoiceUtils";
 
 const PAGE_SIZE = 100;
-const LIVE_TOTAL_TOLERANCE = 1;
 
 const isInvoiceRecord = (value) => value && typeof value === "object";
 
@@ -36,10 +35,7 @@ export function useRealtimeInvoices() {
     maxItems: "",
   });
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
-  const [dailySalesHistory, setDailySalesHistory] = useState([]);
   const [salesForecast, setSalesForecast] = useState(null);
-
-  const [activePanel, setActivePanel] = useState("facturas");
   const [currentPage, setCurrentPage] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -50,8 +46,6 @@ export function useRealtimeInvoices() {
   const shouldReconnectRef = useRef(true);
   const intentionalCloseRef = useRef(false);
   const pendingManualReconnectRef = useRef(false);
-
-  const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const loadInvoices = useCallback(async () => {
     try {
@@ -133,41 +127,6 @@ export function useRealtimeInvoices() {
     loadInvoices().catch(() => {});
   }, [loadInvoices]);
 
-  const loadDailySalesHistory = useCallback(
-    async (branchValue) => {
-      const params = new URLSearchParams();
-      params.set("days", "10");
-      const targetBranch =
-        branchValue ??
-        (filters.branch && filters.branch !== "" ? filters.branch : "all");
-
-      if (targetBranch && targetBranch !== "all") {
-        params.set("branch", targetBranch);
-      }
-
-      const response = await apiFetch(
-        `/invoices/daily-sales?${params.toString()}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const payload = await response.json();
-
-      if (Array.isArray(payload)) {
-        return payload;
-      }
-
-      if (Array.isArray(payload?.history)) {
-        return payload.history;
-      }
-
-      return [];
-    },
-    [filters.branch]
-  );
-
   const loadSalesForecast = useCallback(
     async (branchValue) => {
       const params = new URLSearchParams();
@@ -192,27 +151,6 @@ export function useRealtimeInvoices() {
     },
     [filters.branch]
   );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    loadDailySalesHistory()
-      .then((history) => {
-        if (!cancelled) {
-          setDailySalesHistory(history);
-        }
-      })
-      .catch((error) => {
-        console.error("Error cargando historial de ventas", error);
-        if (!cancelled) {
-          setDailySalesHistory([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loadDailySalesHistory]);
 
   useEffect(() => {
     let cancelled = false;
@@ -492,17 +430,6 @@ export function useRealtimeInvoices() {
       await loadInvoices().catch(() => {});
 
       try {
-        const history = await loadDailySalesHistory(filters.branch);
-        setDailySalesHistory(history);
-      } catch (error) {
-        console.error(
-          "Error actualizando historial durante el refresco",
-          error
-        );
-        setDailySalesHistory([]);
-      }
-
-      try {
         const forecast = await loadSalesForecast(filters.branch);
         setSalesForecast(forecast);
       } catch (error) {
@@ -521,7 +448,6 @@ export function useRealtimeInvoices() {
     filters.branch,
     forceReconnect,
     isRefreshing,
-    loadDailySalesHistory,
     loadInvoices,
     loadSalesForecast,
   ]);
@@ -670,127 +596,6 @@ export function useRealtimeInvoices() {
     };
   }, [dailySummary, salesForecast]);
 
-  const billingSeries = useMemo(() => {
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return {
-        series: [],
-        average: 0,
-      };
-    }
-
-    const timeFormatter = new Intl.DateTimeFormat("es-CO", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    const tooltipFormatter = new Intl.DateTimeFormat("es-CO", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-
-    const BUCKET_SIZE_MINUTES = 1;
-    const BUCKET_SIZE_MS = BUCKET_SIZE_MINUTES * 60 * 1000;
-
-    const entries = messages
-      .map((msg) => {
-        const rawTimestamp =
-          msg.invoice_date ?? msg.timestamp ?? msg.created_at ?? null;
-        const parsed = parseInvoiceTimestamp(rawTimestamp);
-        if (!parsed) {
-          return null;
-        }
-
-        return {
-          invoiceNumber: msg.invoice_number,
-          timestamp: parsed.getTime(),
-          iso: parsed.toISOString(),
-          total: toNumber(msg.total),
-          branch: msg.branch || "FLO",
-          tooltipLabel: tooltipFormatter.format(parsed),
-          timeLabel: timeFormatter.format(parsed),
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    if (entries.length === 0) {
-      return {
-        series: [],
-        average: 0,
-      };
-    }
-
-    const invoiceAverage =
-      entries.reduce((sum, item) => sum + toNumber(item.total), 0) /
-      entries.length;
-
-    const bucketsMap = new Map();
-
-    entries.forEach((entry) => {
-      const bucketStart =
-        Math.floor(entry.timestamp / BUCKET_SIZE_MS) * BUCKET_SIZE_MS;
-      const bucketEnd = bucketStart + BUCKET_SIZE_MS;
-
-      if (!bucketsMap.has(bucketStart)) {
-        bucketsMap.set(bucketStart, {
-          bucketStart,
-          bucketEnd,
-          total: 0,
-          invoices: [],
-        });
-      }
-
-      const bucket = bucketsMap.get(bucketStart);
-      bucket.total += toNumber(entry.total);
-      bucket.invoices.push({
-        ...entry,
-        deviation: toNumber(entry.total) - invoiceAverage,
-      });
-    });
-
-    const buckets = Array.from(bucketsMap.values()).sort(
-      (a, b) => a.bucketStart - b.bucketStart
-    );
-
-    const bucketAverage =
-      buckets.reduce((sum, bucket) => sum + bucket.total, 0) / buckets.length;
-
-    const series = buckets.map((bucket) => {
-      const startDate = new Date(bucket.bucketStart);
-      const endDate = new Date(bucket.bucketEnd - 1);
-
-      const windowLabel = `${timeFormatter.format(
-        startDate
-      )} - ${timeFormatter.format(endDate)}`;
-
-      return {
-        id: `bucket-${bucket.bucketStart}`,
-        timestamp: bucket.bucketStart,
-        total: bucket.total,
-        average: bucketAverage,
-        deviation: bucket.total - bucketAverage,
-        timeLabel: windowLabel,
-        tooltipLabel: `${bucket.invoices.length} ${
-          bucket.invoices.length === 1 ? "factura" : "facturas"
-        } entre ${windowLabel}`,
-        invoiceCount: bucket.invoices.length,
-        bucketStart: bucket.bucketStart,
-        bucketEnd: bucket.bucketEnd,
-        invoices: bucket.invoices,
-        windowLabel,
-      };
-    });
-
-    return {
-      series,
-      average: bucketAverage,
-    };
-  }, [messages]);
-
-  const latestBillingPoint =
-    billingSeries.series.length > 0
-      ? billingSeries.series[billingSeries.series.length - 1]
-      : null;
-
   const selectedInvoiceData = selectedInvoices
     ? messages.find((msg) => msg.invoice_number === selectedInvoices)
     : null;
@@ -837,104 +642,6 @@ export function useRealtimeInvoices() {
     });
     return Array.from(branchSet).sort((a, b) => a.localeCompare(b));
   }, [messages]);
-
-  const hourlySalesHeatmap = useMemo(() => {
-    const branchFilter = filters.branch ?? "all";
-    const hours = Array.from({ length: 24 }, (_, index) => index);
-    const bucketMap = new Map();
-    let maxTotal = 0;
-    let consideredInvoices = 0;
-
-    messages.forEach((msg) => {
-      const branchKey = msg.branch || "FLO";
-      if (branchFilter !== "all" && branchKey !== branchFilter) {
-        return;
-      }
-
-      const rawTimestamp =
-        msg.invoice_date ?? msg.timestamp ?? msg.created_at ?? null;
-      const parsed = parseInvoiceTimestamp(rawTimestamp);
-      if (!parsed) {
-        return;
-      }
-
-      consideredInvoices += 1;
-
-      const hourBucket = parsed.getHours();
-      const totalValue = toNumber(msg.total);
-      const baseKey = `${branchKey}::${hourBucket}`;
-      const aggregateKey = `__all__::${hourBucket}`;
-
-      const updateBucket = (key) => {
-        const entry = bucketMap.get(key) || { total: 0, count: 0 };
-        entry.total += totalValue;
-        entry.count += 1;
-        bucketMap.set(key, entry);
-        if (entry.total > maxTotal) {
-          maxTotal = entry.total;
-        }
-      };
-
-      updateBucket(baseKey);
-      if (branchFilter === "all") {
-        updateBucket(aggregateKey);
-      }
-    });
-
-    const targetBranches =
-      branchFilter === "all"
-        ? availableBranches
-        : availableBranches.includes(branchFilter)
-        ? [branchFilter]
-        : [];
-
-    const includeAggregateRow =
-      branchFilter === "all" && availableBranches.length > 1;
-
-    const rows = [];
-
-    if (includeAggregateRow) {
-      rows.push({
-        key: "__all__",
-        label: "Todas las sucursales",
-        values: hours.map((hour) => {
-          const entry = bucketMap.get(`__all__::${hour}`) || {
-            total: 0,
-            count: 0,
-          };
-          if (entry.total > maxTotal) {
-            maxTotal = entry.total;
-          }
-          return { hour, total: entry.total, count: entry.count };
-        }),
-      });
-    }
-
-    targetBranches.forEach((branch) => {
-      rows.push({
-        key: branch,
-        label: branch.toUpperCase(),
-        values: hours.map((hour) => {
-          const entry = bucketMap.get(`${branch}::${hour}`) || {
-            total: 0,
-            count: 0,
-          };
-          if (entry.total > maxTotal) {
-            maxTotal = entry.total;
-          }
-          return { hour, total: entry.total, count: entry.count };
-        }),
-      });
-    });
-
-    return {
-      hours,
-      rows,
-      maxTotal,
-      totalInvoices: consideredInvoices,
-      hasData: consideredInvoices > 0,
-    };
-  }, [availableBranches, filters.branch, messages]);
 
   const totalsRange = useMemo(() => {
     if (messages.length === 0) {
@@ -1050,92 +757,6 @@ export function useRealtimeInvoices() {
     return count;
   }, [filters]);
 
-  const dailySalesSeries = useMemo(() => {
-    const liveTotalsByDay = new Map();
-
-    if (messages.length > 0) {
-      messages.forEach((msg) => {
-        const branchKey = msg.branch || "FLO";
-        if (filters.branch !== "all" && branchKey !== filters.branch) {
-          return;
-        }
-
-        const baseDate =
-          (msg.invoice_date && msg.invoice_date.slice(0, 10)) ||
-          (msg.timestamp && msg.timestamp.slice(0, 10)) ||
-          (msg.created_at && msg.created_at.slice(0, 10)) ||
-          todayKey;
-        const totalValue = toNumber(msg.total);
-        liveTotalsByDay.set(
-          baseDate,
-          (liveTotalsByDay.get(baseDate) || 0) + totalValue
-        );
-      });
-    }
-
-    const historyTotals = new Map();
-    dailySalesHistory.forEach((entry) => {
-      if (!entry || !entry.date) {
-        return;
-      }
-      historyTotals.set(entry.date, toNumber(entry.total));
-    });
-
-    const allDates = new Set([
-      ...historyTotals.keys(),
-      ...liveTotalsByDay.keys(),
-    ]);
-
-    if (allDates.size === 0) {
-      if (filters.branch === "all" && dailySummary.totalSales > 0) {
-        const fallbackTotal = toNumber(dailySummary.totalSales);
-        return [
-          {
-            date: todayKey,
-            total: fallbackTotal,
-            cumulative: fallbackTotal,
-          },
-        ];
-      }
-      return [];
-    }
-    const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
-
-    let cumulative = 0;
-    return sortedDates.map((date) => {
-      const baseTotal = historyTotals.get(date) || 0;
-      const hasLiveTotal = liveTotalsByDay.has(date);
-      const liveTotal = hasLiveTotal ? toNumber(liveTotalsByDay.get(date)) : 0;
-
-      let total = baseTotal;
-      if (hasLiveTotal) {
-        total =
-          liveTotal + LIVE_TOTAL_TOLERANCE >= baseTotal
-            ? Math.max(baseTotal, liveTotal)
-            : baseTotal + liveTotal;
-        if (baseTotal <= 0) {
-          total = liveTotal;
-        } else if (liveTotal > baseTotal + LIVE_TOTAL_TOLERANCE) {
-          total = liveTotal;
-        } else {
-          total = Math.max(baseTotal, liveTotal);
-        }
-      }
-      cumulative += total;
-      return {
-        date,
-        total,
-        cumulative,
-      };
-    });
-  }, [
-    dailySalesHistory,
-    dailySummary.totalSales,
-    filters.branch,
-    messages,
-    todayKey,
-  ]);
-
   const invoicesCountLabel = (() => {
     if (messages.length === 0) {
       return "Sin facturas registradas";
@@ -1191,23 +812,12 @@ export function useRealtimeInvoices() {
     }
   }, [availableBranches, filters.branch]);
 
-  useEffect(() => {
-    if (activePanel !== "facturas") {
-      setAreFiltersOpen(false);
-    }
-  }, [activePanel]);
-
   return {
     status,
     messages,
     summary,
-    billingSeries,
-    latestBillingPoint,
-    dailySalesSeries,
     isRefreshing,
     handleManualRefresh,
-    activePanel,
-    setActivePanel,
     areFiltersOpen,
     setAreFiltersOpen,
     filters,
@@ -1235,7 +845,5 @@ export function useRealtimeInvoices() {
     paginationRange,
     currentPage,
     setCurrentPage,
-    salesForecast,
-    hourlySalesHeatmap,
   };
 }
