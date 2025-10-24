@@ -174,6 +174,26 @@ export default function RealtimeChartsSection({
 
   const [viewDomain, setViewDomain] = useState(domain);
   const [isPanning, setIsPanning] = useState(false);
+
+  const maxIntervalTotal = useMemo(
+    () =>
+      salesDataset.reduce(
+        (maxValue, entry) => Math.max(maxValue, entry?.total ?? 0),
+        0
+      ),
+    [salesDataset]
+  );
+  const yAxisMax = useMemo(() => {
+    if (!Number.isFinite(maxIntervalTotal) || maxIntervalTotal <= 0) {
+      return 1_000_000;
+    }
+
+    const paddedMax = maxIntervalTotal * 1.1;
+    const magnitude = 10 ** Math.floor(Math.log10(paddedMax));
+    const roundedMax = Math.ceil(paddedMax / magnitude) * magnitude;
+
+    return Math.max(roundedMax, 1_000_000);
+  }, [maxIntervalTotal]);
   const containerRef = useRef(null);
   const panStateRef = useRef({
     isPanning: false,
@@ -481,7 +501,7 @@ export default function RealtimeChartsSection({
                 yAxis={[
                   {
                     min: 0,
-                    max: 3_000_000,
+                    max: yAxisMax,
                     valueFormatter: (value) => formatCurrency(value ?? 0),
                   },
                 ]}
