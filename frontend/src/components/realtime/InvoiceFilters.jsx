@@ -1,5 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-
+import React, { useMemo } from "react";
 import { Button } from "../button";
 
 const SORT_OPTIONS = [
@@ -58,29 +57,40 @@ const FilterCard = ({ icon, title, description, children }) => (
   </section>
 );
 
-const SortOption = ({ option, isActive, onChange }) => (
-  <label
-    key={option.value}
-    className="flex cursor-pointer items-start gap-3 rounded-lg border border-transparent px-3 py-2 transition hover:border-primary/40 hover:bg-primary/5"
-  >
-    <input
-      type="radio"
-      name="invoice-sort"
-      value={option.value}
-      checked={isActive}
-      onChange={onChange}
-      className="mt-1 h-3.5 w-3.5 border-slate-400 text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-    />
-    <span className="flex flex-col gap-0.5">
-      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-        {option.label}
-      </span>
-      <span className="text-[11px] text-slate-500 dark:text-slate-400">
-        {option.helper}
-      </span>
-    </span>
-  </label>
-);
+const SortDropdown = ({ value, onChange }) => {
+  const selectedOption = useMemo(
+    () =>
+      SORT_OPTIONS.find((option) => option.value === value) ?? SORT_OPTIONS[0],
+    [value]
+  );
+
+  return (
+    <div className="space-y-2">
+      <label className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400 dark:text-slate-500">
+        Orden actual
+      </label>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={onChange}
+          className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-10 text-sm font-medium text-slate-700 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        >
+          {SORT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-400">
+          ▾
+        </span>
+      </div>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+        {selectedOption.helper}
+      </p>
+    </div>
+  );
+};
 
 export default function InvoiceFilters({
   isOpen,
@@ -241,21 +251,10 @@ export default function InvoiceFilters({
           title="Ordenar resultados"
           description="Elige cómo se priorizan las facturas listadas."
         >
-          <div className="space-y-2">
-            {SORT_OPTIONS.map((option) => (
-              <SortOption
-                key={option.value}
-                option={option}
-                isActive={filters.sortBy === option.value}
-                onChange={onFilterChange("sortBy")}
-              />
-            ))}
-          </div>
-          <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-slate-400 dark:text-slate-500">
-            Actual:{" "}
-            {SORT_OPTIONS.find((option) => option.value === filters.sortBy)
-              ?.label ?? "Más recientes"}
-          </p>
+          <SortDropdown
+            value={filters.sortBy}
+            onChange={onFilterChange("sortBy")}
+          />
         </FilterCard>
       </div>
     </div>
