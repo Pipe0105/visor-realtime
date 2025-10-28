@@ -16,6 +16,26 @@ export default function RealtimeMetrics({ summary, formatCurrency }) {
     ? currencyFormatter(forecast.total || 0)
     : "Sin datos";
 
+  const totalSales = Number.isFinite(Number(summary?.total))
+    ? Number(summary.total)
+    : 0;
+
+  let forecastHelperText = "";
+
+  if (forecast && Number.isFinite(Number(forecast.total))) {
+    const forecastTotal = Number(forecast.total);
+
+    if (totalSales > forecastTotal) {
+      forecastHelperText = "^";
+    } else if (totalSales < forecastTotal) {
+      forecastHelperText = "v";
+    } else {
+      forecastHelperText = "-";
+    }
+  } else {
+    forecastHelperText = "Sin datos de pronóstico";
+  }
+
   return (
     <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
       {" "}
