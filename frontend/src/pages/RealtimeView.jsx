@@ -46,7 +46,6 @@ function RealtimeView() {
     setCurrentPage,
     messages,
     allMessages,
-    dailySalesHistory,
   } = useRealtimeInvoices();
 
   const connectionHealthy = status.includes("🟢");
@@ -95,7 +94,6 @@ function RealtimeView() {
             messages={allMessages}
             summary={summary}
             formatCurrency={formatCurrency}
-            dailySalesHistory={dailySalesHistory}
           />
         </Suspense>
       ) : (
