@@ -61,6 +61,7 @@ export function useRealtimeInvoices() {
     maxTotal: "",
     minItems: "",
     maxItems: "",
+    sortBy: "recent",
   });
   const [areFiltersOpen, setAreFiltersOpen] = useState(false);
   const [salesForecast, setSalesForecast] = useState(null);
@@ -952,7 +953,7 @@ export function useRealtimeInvoices() {
     const maxItems =
       filters.maxItems !== "" ? toNumber(filters.maxItems) : null;
 
-    return messages.filter((msg) => {
+    const filtered = messages.filter((msg) => {
       const matchesQuery = normalizedQuery
         ? `${msg.invoice_number}`.toLowerCase().includes(normalizedQuery)
         : true;
@@ -976,6 +977,40 @@ export function useRealtimeInvoices() {
         matchesMaxItems
       );
     });
+
+    const sortKey = filters.sortBy ?? "recent";
+    const sorted = [...filtered];
+
+    const getTimestamp = (invoice) => {
+      const parsedDate = parseInvoiceTimestamp(
+        invoice.invoice_date ?? invoice.timestamp ?? invoice.created_at ?? null
+      );
+      return parsedDate ? parsedDate.getTime() : 0;
+    };
+
+    switch (sortKey) {
+      case "total-desc":
+        sorted.sort((a, b) => toNumber(b.total) - toNumber(a.total));
+        break;
+      case "total-asc":
+        sorted.sort((a, b) => toNumber(a.total) - toNumber(b.total));
+        break;
+      case "items-desc":
+        sorted.sort((a, b) => toNumber(b.items) - toNumber(a.items));
+        break;
+      case "items-asc":
+        sorted.sort((a, b) => toNumber(a.items) - toNumber(b.items));
+        break;
+      case "oldest":
+        sorted.sort((a, b) => getTimestamp(a) - getTimestamp(b));
+        break;
+      case "recent":
+      default:
+        sorted.sort((a, b) => getTimestamp(b) - getTimestamp(a));
+        break;
+    }
+
+    return sorted;
   }, [filters, messages]);
 
   const totalFilteredInvoices = filteredMessages.length;
@@ -1016,6 +1051,8 @@ export function useRealtimeInvoices() {
     if (filters.branch !== "all") count += 1;
     if (filters.minTotal !== "" || filters.maxTotal !== "") count += 1;
     if (filters.minItems !== "" || filters.maxItems !== "") count += 1;
+    if ((filters.sortBy ?? "recent") !== "recent") count += 1;
+
     return count;
   }, [filters]);
 
@@ -1057,6 +1094,7 @@ export function useRealtimeInvoices() {
       maxTotal: "",
       minItems: "",
       maxItems: "",
+      sortBy: "recent",
     });
   }, []);
 
