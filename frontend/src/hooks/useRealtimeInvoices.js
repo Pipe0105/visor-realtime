@@ -11,7 +11,7 @@ import {
 } from "../lib/invoiceUtils";
 
 const PAGE_SIZE = 100;
-const MAX_VISIBLE_INVOICES = 700;
+const MAX_VISIBLE_INVOICES = 20000;
 const DEFAULT_DAILY_HISTORY_DAYS = 14;
 
 const isInvoiceRecord = (value) => value && typeof value === "object";

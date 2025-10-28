@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../button";
 
@@ -49,51 +49,15 @@ export default function InvoiceFilters({
     return null;
   }
 
-  const [isSortOpen, setIsSortOpen] = useState(false);
-  const sortTriggerRef = useRef(null);
-  const sortPanelRef = useRef(null);
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (
-        sortTriggerRef.current &&
-        !sortTriggerRef.current.contains(event.target) &&
-        sortPanelRef.current &&
-        !sortPanelRef.current.contains(event.target)
-      ) {
-        setIsSortOpen(false);
-      }
-    }
-
-    function handleEscape(event) {
-      if (event.key === "Escape") {
-        setIsSortOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, []);
-
-  const handleSortChange = (event) => {
-    onFilterChange("sortBy")(event);
-    setIsSortOpen(false);
-  };
-
   return (
     <div
       id="invoice-filters"
       className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/50"
     >
-      <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1.15fr)_auto] md:items-start">
+      <div className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.6fr)]">
           <div className="flex flex-col gap-3">
-            <div className="w-full">
+            <div className="min-w-[12rem]">
               <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
                 Buscar folio
               </label>
@@ -106,61 +70,43 @@ export default function InvoiceFilters({
               />
             </div>
           </div>
-          <div className="flex justify-end md:justify-start">
-            <div className="relative">
-              <button
-                ref={sortTriggerRef}
-                type="button"
-                onClick={() => setIsSortOpen((prev) => !prev)}
-                className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white/80 px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 shadow-inner transition hover:border-primary/60 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/40 dark:border-slate-800/70 dark:bg-slate-900/80 dark:text-slate-300"
-                aria-expanded={isSortOpen}
-                aria-haspopup="listbox"
-              >
-                <span>Ordenar facturas</span>
-                <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
-                  {SORT_OPTIONS.find(
-                    (option) => option.value === filters.sortBy
-                  )?.label ?? "Más recientes"}
-                </span>
-              </button>
-              {isSortOpen ? (
-                <div
-                  ref={sortPanelRef}
-                  className="absolute right-0 top-[calc(100%+0.5rem)] z-20 w-72 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur-sm dark:border-slate-800/70 dark:bg-slate-900/90"
-                  role="listbox"
-                >
-                  <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                    {SORT_OPTIONS.map((option) => {
-                      const isActive = filters.sortBy === option.value;
-                      return (
-                        <label
-                          key={option.value}
-                          className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 transition hover:bg-slate-100/80 dark:hover:bg-slate-800/40"
-                        >
-                          <input
-                            type="radio"
-                            name="invoice-sort"
-                            value={option.value}
-                            checked={isActive}
-                            onChange={handleSortChange}
-                            className="mt-1 h-3.5 w-3.5 border-slate-400 text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-                          />
-                          <span className="flex flex-col">
-                            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                              {option.label}
-                            </span>
-                            <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                              {option.helper}
-                            </span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
+          <details className="group rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-slate-600 shadow-inner transition dark:border-slate-800/70 dark:bg-slate-900/80 dark:text-slate-300">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 transition group-open:text-primary dark:text-slate-400">
+              Ordenar facturas
+              <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 group-open:text-primary dark:text-slate-500">
+                {SORT_OPTIONS.find((option) => option.value === filters.sortBy)
+                  ?.label ?? "Más recientes"}
+              </span>
+            </summary>
+            <div className="mt-3 space-y-2 border-t border-slate-200 pt-3 text-sm dark:border-slate-800">
+              {SORT_OPTIONS.map((option) => {
+                const isActive = filters.sortBy === option.value;
+                return (
+                  <label
+                    key={option.value}
+                    className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 transition hover:bg-slate-100/80 dark:hover:bg-slate-800/40"
+                  >
+                    <input
+                      type="radio"
+                      name="invoice-sort"
+                      value={option.value}
+                      checked={isActive}
+                      onChange={onFilterChange("sortBy")}
+                      className="mt-1 h-3.5 w-3.5 border-slate-400 text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                    />
+                    <span className="flex flex-col">
+                      <span className="text-sm font-medium text-slate-700 transition group-open:text-slate-800 dark:text-slate-200">
+                        {option.label}
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {option.helper}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
             </div>
-          </div>
+          </details>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-lg border border-slate-200 bg-white/80 p-3 shadow-inner dark:border-slate-800/70 dark:bg-slate-900/80">
