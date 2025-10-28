@@ -20,21 +20,38 @@ export default function RealtimeMetrics({ summary, formatCurrency }) {
     ? Number(summary.total)
     : 0;
 
-  let forecastHelperText = "";
+  let forecastTrendSymbol = null;
+  let forecastTrendTooltip = "";
 
   if (forecast && Number.isFinite(Number(forecast.total))) {
     const forecastTotal = Number(forecast.total);
 
     if (totalSales > forecastTotal) {
-      forecastHelperText = "^";
+      forecastTrendSymbol = "^";
+      forecastTrendTooltip = "Ventas por encima del pronóstico";
     } else if (totalSales < forecastTotal) {
-      forecastHelperText = "v";
+      forecastTrendSymbol = "V";
+      forecastTrendTooltip = "Ventas por debajo del pronóstico";
     } else {
-      forecastHelperText = "-";
+      forecastTrendSymbol = "-";
+      forecastTrendTooltip = "Ventas iguales al pronóstico";
     }
-  } else {
-    forecastHelperText = "Sin datos de pronóstico";
   }
+
+  const forecastValueNode = (
+    <span className="flex items-center justify-center gap-3">
+      <span>{forecastValue}</span>
+      {forecastTrendSymbol ? (
+        <span
+          className="text-4xl font-bold leading-none"
+          title={forecastTrendTooltip}
+          aria-label={forecastTrendTooltip}
+        >
+          {forecastTrendSymbol}
+        </span>
+      ) : null}
+    </span>
+  );
 
   return (
     <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
@@ -65,9 +82,10 @@ export default function RealtimeMetrics({ summary, formatCurrency }) {
       />
       <MetricCard
         title={forecastTitle}
-        value={forecastValue}
+        value={forecastValueNode}
         color="text-fuchsia-500"
         icon="📈"
+        helperText=""
       />
     </section>
   );

@@ -218,6 +218,7 @@ export default function RealtimeChartsSection({
   messages = [],
   summary = null,
   formatCurrency = formatCurrencyDefault,
+  dailySalesHistory = null,
 }) {
   const [aggregationMinutes, setAggregationMinutes] = useState(5);
 
@@ -231,12 +232,93 @@ export default function RealtimeChartsSection({
     [messages]
   );
 
+  const dailySalesHistoryDataset = useMemo(() => {
+    const entries = Array.isArray(dailySalesHistory?.history)
+      ? dailySalesHistory.history
+      : [];
+
+    if (!entries.length) {
+      return [];
+    }
+
+    const dateFormatter = new Intl.DateTimeFormat("es-CO", {
+      month: "short",
+      day: "2-digit",
+    });
+
+    const longDateFormatter = new Intl.DateTimeFormat("es-CO", {
+      weekday: "short",
+      year: "numeric",
+      month: "long",
+      day: "2-digit",
+    });
+
+    return entries.map((entry) => {
+      const dateValue = entry?.date ? new Date(`${entry.date}T00:00:00`) : null;
+      const label = dateValue ? dateFormatter.format(dateValue) : entry?.date;
+      const tooltipLabel = dateValue
+        ? longDateFormatter.format(dateValue)
+        : label ?? "";
+
+      return {
+        date: entry?.date ?? null,
+        label: label ?? "",
+        tooltipLabel,
+        total: toNumber(entry?.total),
+        cumulative: toNumber(entry?.cumulative),
+        invoices: Math.max(0, Math.trunc(toNumber(entry?.invoices))),
+      };
+    });
+  }, [dailySalesHistory]);
+
   const totalSales = summary?.total ?? 0;
   const totalInvoices = summary?.count ?? 0;
   const hasInvoices = messages.length > 0;
 
   const [viewDomain, setViewDomain] = useState(domain);
   const [isPanning, setIsPanning] = useState(false);
+
+  const dailySalesHistoryStats = useMemo(() => {
+    const hasData = dailySalesHistoryDataset.length > 0;
+    const cumulativeTotal = hasData
+      ? dailySalesHistoryDataset[dailySalesHistoryDataset.length - 1]
+          ?.cumulative ?? 0
+      : 0;
+    const maxDaily = dailySalesHistoryDataset.reduce(
+      (maxValue, entry) => Math.max(maxValue, entry?.total ?? 0),
+      0
+    );
+    const totalInvoicesHistory = dailySalesHistoryDataset.reduce(
+      (sum, entry) => sum + (entry?.invoices ?? 0),
+      0
+    );
+    const averageDaily = hasData
+      ? cumulativeTotal / dailySalesHistoryDataset.length
+      : 0;
+
+    return {
+      hasData,
+      cumulativeTotal,
+      maxDaily,
+      totalInvoices: totalInvoicesHistory,
+      averageDaily,
+      days: dailySalesHistory?.days ?? dailySalesHistoryDataset.length,
+      branch: dailySalesHistory?.branch ?? "all",
+    };
+  }, [
+    dailySalesHistory?.branch,
+    dailySalesHistory?.days,
+    dailySalesHistoryDataset,
+  ]);
+
+  const dailySalesBranchLabel = useMemo(() => {
+    const branchValue = dailySalesHistoryStats.branch ?? "all";
+    const normalized = String(branchValue).trim();
+    if (!normalized || normalized.toLowerCase() === "all") {
+      return "Todas las sedes";
+    }
+    return `Sede ${normalized}`;
+  }, [dailySalesHistoryStats.branch]);
 
   const maxIntervalTotal = useMemo(
     () =>
@@ -619,6 +701,92 @@ export default function RealtimeChartsSection({
           ) : (
             <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-200/60 bg-slate-50 text-sm text-slate-500 dark:border-slate-800/60 dark:bg-slate-900/40 dark:text-slate-400">
               Aún no hay facturas registradas en este rango horario.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border border-slate-200 bg-white/90 shadow-sm dark:border-slate-800/70 dark:bg-slate-900/70">
+        <CardHeader>
+          <CardTitle className="text-base font-semibold">
+            Historial diario de ventas
+          </CardTitle>
+          <CardDescription>
+            Totales consolidados por día con base en el resumen almacenado en la
+            base de datos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {dailySalesHistoryStats.hasData ? (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <span>
+                  Últimos {dailySalesHistoryStats.days} días ·{" "}
+                  {dailySalesBranchLabel}
+                </span>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>
+                    Total periodo:{" "}
+                    {formatCurrency(
+                      dailySalesHistoryStats.cumulativeTotal ?? 0
+                    )}
+                  </span>
+                  <span>
+                    Promedio diario:{" "}
+                    {formatCurrency(dailySalesHistoryStats.averageDaily ?? 0)}
+                  </span>
+                  <span>
+                    Pico diario:{" "}
+                    {formatCurrency(dailySalesHistoryStats.maxDaily ?? 0)}
+                  </span>
+                </div>
+              </div>
+              <BarChart
+                dataset={dailySalesHistoryDataset}
+                height={320}
+                xAxis={[
+                  {
+                    dataKey: "label",
+                    scaleType: "band",
+                    categoryGapRatio: 0.4,
+                    valueFormatter: (value, context) => {
+                      const index = context?.dataIndex ?? null;
+                      if (index != null) {
+                        return (
+                          dailySalesHistoryDataset[index]?.tooltipLabel ?? value
+                        );
+                      }
+                      return value;
+                    },
+                  },
+                ]}
+                yAxis={[
+                  {
+                    min: 0,
+                    valueFormatter: (value) => formatCurrency(value ?? 0),
+                  },
+                ]}
+                series={[
+                  {
+                    dataKey: "total",
+                    label: "Total del día",
+                    valueFormatter: (value) => formatCurrency(value ?? 0),
+                  },
+                ]}
+                grid={{ vertical: false, horizontal: true }}
+                margin={{ top: 16, right: 24, bottom: 32, left: 72 }}
+                tooltip={{ trigger: "item" }}
+                slotProps={{ legend: { hidden: true } }}
+              />
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                {dailySalesHistoryStats.totalInvoices} factura
+                {dailySalesHistoryStats.totalInvoices === 1 ? "" : "s"} en el
+                periodo analizado.
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-200/60 bg-slate-50 p-6 text-sm text-slate-500 dark:border-slate-800/60 dark:bg-slate-900/40 dark:text-slate-400">
+              Aún no hay historial acumulado para mostrar.
             </div>
           )}
         </CardContent>

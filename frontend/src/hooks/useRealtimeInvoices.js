@@ -12,8 +12,29 @@ import {
 
 const PAGE_SIZE = 100;
 const MAX_VISIBLE_INVOICES = 700;
+const DEFAULT_DAILY_HISTORY_DAYS = 14;
 
 const isInvoiceRecord = (value) => value && typeof value === "object";
+
+function normalizeDailyHistoryEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  const date = typeof entry.date === "string" ? entry.date : null;
+  const total = toNumber(entry.total);
+  const invoices = Math.max(0, Math.trunc(toNumber(entry.invoices)));
+  const cumulative = toNumber(
+    entry.cumulative != null ? entry.cumulative : entry.total
+  );
+
+  return {
+    date,
+    total,
+    cumulative,
+    invoices,
+  };
+}
 
 export function useRealtimeInvoices() {
   const [status, setStatus] = useState("Desconectado 🔴");
@@ -26,6 +47,12 @@ export function useRealtimeInvoices() {
     totalNetSales: 0,
     totalInvoices: 0,
     averageTicket: 0,
+  });
+
+  const [dailySalesHistory, setDailySalesHistory] = useState({
+    branch: "all",
+    days: DEFAULT_DAILY_HISTORY_DAYS,
+    history: [],
   });
   const [filters, setFilters] = useState({
     query: "",
@@ -217,6 +244,56 @@ export function useRealtimeInvoices() {
     [filters.branch]
   );
 
+  const loadDailySalesHistory = useCallback(
+    async (branchValue) => {
+      const params = new URLSearchParams();
+      params.set("days", String(DEFAULT_DAILY_HISTORY_DAYS));
+
+      const targetBranch = branchValue ?? filters.branch ?? "all";
+      if (targetBranch && targetBranch !== "all") {
+        params.set("branch", targetBranch);
+      }
+
+      const queryString = params.toString();
+      const endpoint = queryString
+        ? `/invoices/daily-sales?${queryString}`
+        : `/invoices/daily-sales`;
+
+      const response = await apiFetch(endpoint);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const rawHistory = Array.isArray(payload?.history) ? payload.history : [];
+
+      let runningCumulative = 0;
+      const normalizedHistory = [];
+      for (const entry of rawHistory) {
+        const normalized = normalizeDailyHistoryEntry(entry);
+        if (!normalized?.date) {
+          continue;
+        }
+        runningCumulative += normalized.total;
+        normalizedHistory.push({
+          ...normalized,
+          cumulative:
+            normalized.cumulative > 0
+              ? normalized.cumulative
+              : runningCumulative,
+        });
+      }
+
+      return {
+        branch: payload?.branch ?? targetBranch ?? "all",
+        days: payload?.days ?? DEFAULT_DAILY_HISTORY_DAYS,
+        history: normalizedHistory,
+      };
+    },
+    [filters.branch]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -237,6 +314,31 @@ export function useRealtimeInvoices() {
       cancelled = true;
     };
   }, [filters.branch, loadSalesForecast]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadDailySalesHistory(filters.branch)
+      .then((history) => {
+        if (!cancelled) {
+          setDailySalesHistory(history);
+        }
+      })
+      .catch((error) => {
+        console.error("Error obteniendo historial diario de ventas", error);
+        if (!cancelled) {
+          setDailySalesHistory({
+            branch: filters.branch ?? "all",
+            days: DEFAULT_DAILY_HISTORY_DAYS,
+            history: [],
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filters.branch, loadDailySalesHistory]);
 
   const connectWebSocket = useCallback(() => {
     if (typeof window === "undefined" || !shouldReconnectRef.current) {
@@ -381,6 +483,91 @@ export function useRealtimeInvoices() {
           };
         });
 
+        if (!hasExistingInvoice) {
+          setDailySalesHistory((prevHistory) => {
+            const previousHistory = Array.isArray(prevHistory?.history)
+              ? prevHistory.history.map((entry) => ({
+                  date: entry?.date ?? null,
+                  total: toNumber(entry?.total),
+                  cumulative: toNumber(entry?.cumulative),
+                  invoices: Math.max(0, Math.trunc(toNumber(entry?.invoices))),
+                }))
+              : [];
+
+            const deltaTotal = invoiceTotal;
+            if (!Number.isFinite(deltaTotal) || deltaTotal === 0) {
+              return prevHistory;
+            }
+
+            const todayIso = messageDay;
+
+            const baseCumulative =
+              previousHistory.length > 0
+                ? previousHistory[previousHistory.length - 1].cumulative
+                : 0;
+
+            if (isNewDay || previousHistory.length === 0) {
+              return {
+                ...prevHistory,
+                history: [
+                  ...previousHistory,
+                  {
+                    date: todayIso,
+                    total: deltaTotal,
+                    cumulative: baseCumulative + deltaTotal,
+                    invoices: 1,
+                  },
+                ],
+              };
+            }
+
+            const existingIndex = previousHistory.findIndex(
+              (entry) => entry?.date === todayIso
+            );
+
+            if (existingIndex === -1) {
+              return {
+                ...prevHistory,
+                history: [
+                  ...previousHistory,
+                  {
+                    date: todayIso,
+                    total: deltaTotal,
+                    cumulative: baseCumulative + deltaTotal,
+                    invoices: 1,
+                  },
+                ],
+              };
+            }
+
+            const updatedHistory = previousHistory.map((entry, index) => {
+              if (index === existingIndex) {
+                const nextTotal = entry.total + deltaTotal;
+                return {
+                  ...entry,
+                  total: nextTotal,
+                  cumulative: entry.cumulative + deltaTotal,
+                  invoices: entry.invoices + 1,
+                };
+              }
+
+              if (index > existingIndex) {
+                return {
+                  ...entry,
+                  cumulative: entry.cumulative + deltaTotal,
+                };
+              }
+
+              return entry;
+            });
+
+            return {
+              ...prevHistory,
+              history: updatedHistory,
+            };
+          });
+        }
+
         let nextMessages;
 
         if (isNewDay) {
@@ -503,6 +690,16 @@ export function useRealtimeInvoices() {
           error
         );
         setSalesForecast(null);
+      }
+
+      try {
+        const history = await loadDailySalesHistory(filters.branch);
+        setDailySalesHistory(history);
+      } catch (error) {
+        console.error(
+          "Error actualizando historial diario durante el refresco",
+          error
+        );
       }
     } catch (error) {
       console.error("Error general durante el refresco manual", error);
@@ -914,5 +1111,6 @@ export function useRealtimeInvoices() {
     paginationRange,
     currentPage,
     setCurrentPage,
+    dailySalesHistory,
   };
 }
