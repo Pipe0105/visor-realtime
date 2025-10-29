@@ -124,74 +124,53 @@ export default function InvoiceFilters({
 
   return createPortal(
     <div
-      id="invoice-filters"
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/40 px-4 py-8 backdrop-blur-sm"
-      onMouseDown={handleOverlayClick}
-      role="presentation"
+      className="fixed inset-0 z-[1000] flex"
+      onClick={(e) => {
+        // Cierra si hace clic fuera del panel
+        if (e.target.id === "filters-overlay") onClose?.();
+      }}
     >
+      {/* Overlay invisible para capturar clics fuera */}
+      <div id="filters-overlay" className="absolute inset-0 bg-transparent" />
+
+      {/* Panel lateral izquierdo */}
       <div
-        id="invoice-filters"
-        className="relative max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-slate-50/95 shadow-2xl transition dark:border-slate-800 dark:bg-slate-950/90"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="invoice-filters-heading"
+        className={cn(
+          "relative h-full w-full max-w-sm transform border-r border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 transition-transform duration-300 ease-in-out",
+          isOpen ? "translate-x-0" : "-translate-x-full"
+        )}
       >
-        <div className="flex items-start justify-between gap-6 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
-          <div className="space-y-2">
-            <p
-              id="invoice-filters-heading"
-              className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400"
-            >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
               Panel de filtros
-            </p>
-            <span className="inline-flex items-center rounded-full bg-slate-200/80 px-4 py-1 text-[11px] font-semibold uppercase tracking-widest text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               {activeFiltersCount > 0
                 ? `${activeFiltersCount} filtro${
                     activeFiltersCount > 1 ? "s" : ""
                   } activo${activeFiltersCount > 1 ? "s" : ""}`
                 : "Sin filtros aplicados"}
-            </span>
+            </p>
           </div>
-
-          <div className="flex flex-col items-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full border border-transparent bg-slate-200/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-600 transition hover:bg-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-slate-800/70 dark:text-slate-200"
-            >
-              Cerrar
-            </button>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onReset}
-                disabled={activeFiltersCount === 0}
-                className="text-sm font-semibold uppercase tracking-wide"
-              >
-                Limpiar
-              </Button>
-              <Button
-                size="sm"
-                onClick={onApply}
-                className="text-sm font-semibold uppercase tracking-wide"
-              >
-                Aplicar filtros
-              </Button>
-            </div>
-          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            ✕
+          </button>
         </div>
-      </div>
 
-      <div className="max-h-[calc(85vh-160px)] overflow-y-auto px-6 py-6">
-        <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2">
+        {/* Body */}
+        <div className="h-[calc(100%-110px)] overflow-y-auto p-5 space-y-5">
           <FilterCard title="Buscar folio">
             <input
               type="search"
               value={filters.query}
               onChange={onFilterChange("query")}
               placeholder="Ej. 001-2024"
-              className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-base text-slate-700 focus:border-primary focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
             />
           </FilterCard>
 
@@ -203,85 +182,64 @@ export default function InvoiceFilters({
           </FilterCard>
 
           <FilterCard title="Rango de montos">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Mínimo
-                </label>
-                <input
-                  type="number"
-                  value={filters.minTotal}
-                  onChange={onFilterChange("minTotal")}
-                  placeholder={totalsRange.min || "0"}
-                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-base text-slate-700 focus:border-primary focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                />
-              </div>
-              <span className="text-base font-semibold text-slate-400">—</span>
-              <div className="flex-1">
-                <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Máximo
-                </label>
-                <input
-                  type="number"
-                  value={filters.maxTotal}
-                  onChange={onFilterChange("maxTotal")}
-                  placeholder={totalsRange.max}
-                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-base text-slate-700 focus:border-primary focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                />
-              </div>
+            <div className="flex gap-3">
+              <input
+                type="number"
+                value={filters.minTotal}
+                onChange={onFilterChange("minTotal")}
+                placeholder={totalsRange.min || "0"}
+                className="w-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              />
+              <input
+                type="number"
+                value={filters.maxTotal}
+                onChange={onFilterChange("maxTotal")}
+                placeholder={totalsRange.max}
+                className="w-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              />
             </div>
           </FilterCard>
 
           <FilterCard title="Cantidad de ítems">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Mínimo
-                </label>
-                <input
-                  type="number"
-                  value={filters.minItems}
-                  onChange={onFilterChange("minItems")}
-                  placeholder={itemsRange.min || "0"}
-                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-base text-slate-700 focus:border-primary focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                />
-              </div>
-              <span className="text-base font-semibold text-slate-400">—</span>
-              <div className="flex-1">
-                <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Máximo
-                </label>
-                <input
-                  type="number"
-                  value={filters.maxItems}
-                  onChange={onFilterChange("maxItems")}
-                  placeholder={itemsRange.max}
-                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-base text-slate-700 focus:border-primary focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                />
-              </div>
+            <div className="flex gap-3">
+              <input
+                type="number"
+                value={filters.minItems}
+                onChange={onFilterChange("minItems")}
+                placeholder={itemsRange.min || "0"}
+                className="w-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              />
+              <input
+                type="number"
+                value={filters.maxItems}
+                onChange={onFilterChange("maxItems")}
+                placeholder={itemsRange.max}
+                className="w-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              />
             </div>
           </FilterCard>
         </div>
-      </div>
 
-      <footer className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4 dark:border-slate-800">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onReset}
-          disabled={activeFiltersCount === 0}
-          className="text-sm font-semibold uppercase tracking-wide"
-        >
-          Limpiar
-        </Button>
-        <Button
-          size="sm"
-          onClick={onApply}
-          className="text-sm font-semibold uppercase tracking-wide"
-        >
-          Aplicar filtros
-        </Button>
-      </footer>
+        {/* Footer */}
+        <footer className="flex justify-between border-t border-slate-200 px-5 py-4 dark:border-slate-800">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onReset}
+            disabled={activeFiltersCount === 0}
+            className="text-xs font-semibold uppercase tracking-wide"
+          >
+            Limpiar
+          </Button>
+          <Button
+            size="sm"
+            onClick={onApply}
+            className="text-xs font-semibold uppercase tracking-wide"
+          >
+            Aplicar filtros
+          </Button>
+        </footer>
+      </div>
     </div>,
     document.body
   );
