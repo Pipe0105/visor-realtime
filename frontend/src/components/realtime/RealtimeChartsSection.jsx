@@ -180,6 +180,8 @@ function buildHourlyHeatmapDataset(messages = []) {
 
 function useElementWidth(ref) {
   const [width, setWidth] = useState(0);
+  const frameRef = useRef(null);
+  const latestWidthRef = useRef(0);
 
   useEffect(() => {
     const element = ref.current;
@@ -187,9 +189,32 @@ function useElementWidth(ref) {
       return () => {};
     }
 
+    const commitWidth = (nextWidth) => {
+      if (latestWidthRef.current !== nextWidth) {
+        latestWidthRef.current = nextWidth;
+        setWidth(nextWidth);
+      }
+    };
+
+    const scheduleWidthUpdate = (nextWidth) => {
+      if (typeof requestAnimationFrame !== "function") {
+        commitWidth(nextWidth);
+        return;
+      }
+
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+      }
+
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null;
+        commitWidth(nextWidth);
+      });
+    };
+
     const updateWidth = () => {
       const nextWidth = element.getBoundingClientRect()?.width ?? 0;
-      setWidth(nextWidth);
+      scheduleWidthUpdate(nextWidth);
     };
 
     updateWidth();
@@ -201,13 +226,20 @@ function useElementWidth(ref) {
     const observer = new ResizeObserver((entries) => {
       if (!entries[0]) return;
       const { width: observedWidth } = entries[0].contentRect;
-      setWidth(observedWidth);
+      scheduleWidthUpdate(observedWidth);
     });
 
     observer.observe(element);
 
     return () => {
       observer.disconnect();
+      if (
+        frameRef.current !== null &&
+        typeof cancelAnimationFrame === "function"
+      ) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
     };
   }, [ref]);
 
