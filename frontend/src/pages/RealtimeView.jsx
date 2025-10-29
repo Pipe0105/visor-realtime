@@ -95,6 +95,7 @@ function RealtimeView() {
             messages={allMessages}
             summary={summary}
             formatCurrency={formatCurrency}
+            dailySalesHistory={dailySalesHistory}
           />
         </Suspense>
       ) : (
