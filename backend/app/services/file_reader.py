@@ -28,7 +28,6 @@ def _coerce_positive(value: float, default: float) -> float:
 NETWORK_PATH = settings.INVOICE_PATH
 FILE_PREFIX = settings.INVOICE_FILE_PREFIX.upper()
 POLL_INTERVAL = _coerce_positive(settings.INVOICE_POLL_INTERVAL, 2.0)
-CACHE_TTL_SECONDS = _coerce_positive(settings.INVOICE_CACHE_TTL_SECONDS, 60.0)
 PERIODIC_RESCAN_SECONDS = max(
     0.0, _coerce_positive(settings.INVOICE_PERIODIC_RESCAN_SECONDS, 120.0)
 )
@@ -44,14 +43,6 @@ _processing_invoices_lock = threading.Lock()
 # Control de rescaneos manuales para evitar solapamiento
 _rescan_lock = threading.Lock()
 
-
-#cache de archivos procesados para reducir lecturas en base de datos
-_processed_files_cache: set[str] = set()
-_processed_files_expiration: float = 0.0
-_processed_files_lock: threading.Lock
-_processed_files_lock = threading.Lock()
-
-
 def _load_processed_files_from_db() -> set[str]:
     db = SessionLocal()
     try:
@@ -60,39 +51,16 @@ def _load_processed_files_from_db() -> set[str]:
         db.close()
         
 def _get_processed_files(force_refresh: bool = False) -> set[str]:
-    global _processed_files_cache, _processed_files_expiration
-    
-    now = time.time()
-    
-    with _processed_files_lock:
-        should_refresh = (
-            force_refresh
-            or not _processed_files_cache
-            or now >= _processed_files_expiration
-        )
-        
-        if should_refresh:
-            try:
-                _processed_files_cache = _load_processed_files_from_db()
-                _processed_files_expiration = now + CACHE_TTL_SECONDS
-            except Exception as exc:
-                print(
-                    "No se pudo refrescar las facturas", exc,
-                )
-                if not _processed_files_cache:
-                    _processed_files_cache = set()
-                    
-        return set(_processed_files_cache)
+    try:
+        return _load_processed_files_from_db()
+    except Exception as exc:
+        print("No se pudo obtener la lista de facturas procesadas", exc)
+        return set()
     
 def _remember_processed_file(filename: Optional[str]):
-    if not filename:
-        return
-    
-    global _processed_files_expiration
-    
-    with _processed_files_lock:
-        _processed_files_cache.add(filename)
-        _processed_files_expiration = time.time() + CACHE_TTL_SECONDS
+    # Ya no se mantiene un cache en memoria; la consulta a la base de datos
+    # evita reprocesar facturas existentes.
+    return
 
 
 def _mark_file_processing(filename: str) -> bool:

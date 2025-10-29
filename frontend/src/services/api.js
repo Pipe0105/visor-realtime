@@ -26,8 +26,6 @@ function getWindowLocation() {
   return window.location;
 }
 
-let cachedApiBaseUrl = null;
-
 function computeApiBaseUrl() {
   const location = getWindowLocation();
 
@@ -62,10 +60,7 @@ function computeApiBaseUrl() {
 }
 
 export function getApiBaseUrl() {
-  if (!cachedApiBaseUrl) {
-    cachedApiBaseUrl = computeApiBaseUrl();
-  }
-  return cachedApiBaseUrl;
+  return computeApiBaseUrl();
 }
 
 export function getApiBaseComponents() {

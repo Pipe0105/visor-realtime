@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from functools import lru_cache
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.config import settings
 
 
-@lru_cache(maxsize=1)
 def _resolve_timezone() -> ZoneInfo:
     tz_name = (getattr(settings, "LOCAL_TIMEZONE", "") or "").strip()
     if tz_name:
