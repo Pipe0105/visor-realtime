@@ -16,7 +16,7 @@ const SORT_OPTIONS = [
 const FilterCard = ({ title, description, children, className }) => (
   <section
     className={cn(
-      "flex flex-col rounded-xl border border-slate-200 bg-white/90 p-5 shadow-sm transition dark:border-slate-700 dark:bg-slate-900/70 overflow-visible",
+      "flex flex-col rounded-xl border border-slate-200 bg-white/95 p-5 shadow-lg shadow-slate-900/5 transition dark:border-slate-700 dark:bg-slate-900/75 overflow-visible",
       className
     )}
   >
@@ -116,29 +116,23 @@ export default function InvoiceFilters({
   }, [isOpen, onClose]);
   if (!isOpen) return null;
 
-  const handleOverlayClick = (event) => {
-    if (event.target === event.currentTarget) {
-      onClose?.();
-    }
-  };
-
   return createPortal(
-    <div
-      className="fixed inset-0 z-[1000] flex"
-      onClick={(e) => {
-        // Cierra si hace clic fuera del panel
-        if (e.target.id === "filters-overlay") onClose?.();
-      }}
-    >
-      {/* Overlay invisible para capturar clics fuera */}
-      <div id="filters-overlay" className="absolute inset-0 bg-transparent" />
+    <div className="fixed inset-0 z-[1000] flex">
+      {/* Overlay */}
+      <button
+        type="button"
+        aria-label="Cerrar filtros"
+        onClick={onClose}
+        className="absolute inset-0 h-full w-full bg-slate-950/40 backdrop-blur-[2px] transition-opacity duration-200"
+      />
 
       {/* Panel lateral izquierdo */}
       <div
         className={cn(
-          "relative h-full w-full max-w-sm transform border-r border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 transition-transform duration-300 ease-in-out",
+          "relative z-10 h-full w-full max-w-sm transform border-r border-slate-200 bg-white shadow-2xl shadow-slate-900/20 dark:border-slate-800 dark:bg-slate-950 transition-transform duration-300 ease-in-out",
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
+        onClick={(event) => event.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
