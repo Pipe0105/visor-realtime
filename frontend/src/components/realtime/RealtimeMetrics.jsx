@@ -30,7 +30,7 @@ export default function RealtimeMetrics({ summary, formatCurrency }) {
       forecastTrendSymbol = "^";
       forecastTrendTooltip = "Ventas por encima del pronóstico";
     } else if (totalSales < forecastTotal) {
-      forecastTrendSymbol = "V";
+      forecastTrendSymbol = "v";
       forecastTrendTooltip = "Ventas por debajo del pronóstico";
     } else {
       forecastTrendSymbol = "-";
