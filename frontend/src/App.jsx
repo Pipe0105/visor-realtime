@@ -30,18 +30,10 @@ export default function App() {
   const [theme, setTheme] = useState(getInitialTheme);
 
   useEffect(() => {
-    if (typeof document !== "undefined") {
-      document.documentElement.classList.toggle("dark", theme === "dark");
-    }
-
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem("theme", theme);
-      } catch (error) {
-        console.warn("No se pudo guardar la preferencia de tema", error);
-      }
-    }
-  }, [theme]);
+    // Fuerza siempre modo claro
+    document.documentElement.classList.remove("dark");
+    localStorage.setItem("theme", "light");
+  }, []);
 
   const toggleTheme = () =>
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
