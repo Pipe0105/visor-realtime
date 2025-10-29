@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import { Button } from "../button";
 import { cn } from "../../lib/utils";
 
@@ -83,9 +83,10 @@ const BranchSelect = ({ branches, value, onChange }) => {
   );
 };
 
-/* --- Dropdown moderno personalizado --- */
+/* --- Dropdown moderno personalizado con cierre automático --- */
 const SortDropdown = ({ value, onChange }) => {
   const [open, setOpen] = useState(false);
+  const dropdownRef = useRef(null);
 
   const selectedOption = useMemo(
     () =>
@@ -93,10 +94,21 @@ const SortDropdown = ({ value, onChange }) => {
     [value]
   );
 
+  // 🔒 Cierra el menú al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   return (
-    <div className="relative overflow-visible">
+    <div ref={dropdownRef} className="relative overflow-visible">
       <label className="block mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        Orden actual
+        Ordenar por:
       </label>
 
       <button
@@ -223,7 +235,7 @@ export default function InvoiceFilters({
           />
         </FilterCard>
 
-        <FilterCard title="Orden Actual">
+        <FilterCard title="Orden Facturas">
           <SortDropdown
             value={filters.sortBy}
             onChange={onFilterChange("sortBy")}
