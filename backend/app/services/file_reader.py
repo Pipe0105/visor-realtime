@@ -14,11 +14,24 @@ from app.config import settings
 from app.services.realtime_manager import realtime_manager
 from datetime import datetime
 
+def _coerce_positive(value: float, default: float) -> float:
+    try:
+        numeric = float(value)
+        if numeric > 0:
+            return numeric
+    except (TypeError, ValueError):
+        pass
+    return default
+
 
 # Ruta de solo lectura y configuración de archivos
 NETWORK_PATH = settings.INVOICE_PATH
 FILE_PREFIX = settings.INVOICE_FILE_PREFIX.upper()
-POLL_INTERVAL = settings.INVOICE_POLL_INTERVAL
+POLL_INTERVAL = _coerce_positive(settings.INVOICE_POLL_INTERVAL, 2.0)
+CACHE_TTL_SECONDS = _coerce_positive(settings.INVOICE_CACHE_TTL_SECONDS, 60.0)
+PERIODIC_RESCAN_SECONDS = max(
+    0.0, _coerce_positive(settings.INVOICE_PERIODIC_RESCAN_SECONDS, 120.0)
+)
 
 # Control de archivos en proceso para evitar duplicados
 _processing_files = set()
@@ -31,6 +44,55 @@ _processing_invoices_lock = threading.Lock()
 # Control de rescaneos manuales para evitar solapamiento
 _rescan_lock = threading.Lock()
 
+
+#cache de archivos procesados para reducir lecturas en base de datos
+_processed_files_cache: set[str] = set()
+_processed_files_expiration: float = 0.0
+_processed_files_lock: threading.Lock
+_processed_files_lock = threading.Lock()
+
+
+def _load_processed_files_from_db() -> set[str]:
+    db = SessionLocal()
+    try:
+        return {row[0] for row in db.query(Invoice.source_file).all() if row[0]}
+    finally:
+        db.close()
+        
+def _get_processed_files(force_refresh: bool = False) -> set[str]:
+    global _processed_files_cache, _processed_files_expiration
+    
+    now = time.time()
+    
+    with _processed_files_lock:
+        should_refresh = (
+            force_refresh
+            or not _processed_files_cache
+            or now >= _processed_files_expiration
+        )
+        
+        if should_refresh:
+            try:
+                _processed_files_cache = _load_processed_files_from_db()
+                _processed_files_expiration = now + CACHE_TTL_SECONDS
+            except Exception as exc:
+                print(
+                    "No se pudo refrescar las facturas", exc,
+                )
+                if not _processed_files_cache:
+                    _processed_files_cache = set()
+                    
+        return set(_processed_files_cache)
+    
+def _remember_processed_file(filename: Optional[str]):
+    if not filename:
+        return
+    
+    global _processed_files_expiration
+    
+    with _processed_files_lock:
+        _processed_files_cache.add(filename)
+        _processed_files_expiration = time.time() + CACHE_TTL_SECONDS
 
 
 def _mark_file_processing(filename: str) -> bool:
@@ -173,6 +235,7 @@ def process_file(file_path: str):
         print(
             f"🔁 Factura {invoice_number} ya está en proceso desde otro archivo. Se omite {filename}."
         )
+        _remember_processed_file(filename)
         return
 
     db = None
@@ -182,9 +245,10 @@ def process_file(file_path: str):
         exists = db.query(Invoice).filter(Invoice.source_file == filename).first()
         if exists:
             print(f"⏩ Factura ya registrada ({filename}), se omite.")
+            _remember_processed_file(filename)
             return
         
-                # === Validar duplicado por número de factura ===
+        # === Validar duplicado por número de factura ===
         if invoice_number:
             duplicate_number = (
                 db.query(Invoice)
@@ -197,6 +261,7 @@ def process_file(file_path: str):
                     f"⏩ Factura {invoice_number} ya fue registrada desde {duplicate_number.source_file},"
                     f" se omite {filename}."
                 )
+                _remember_processed_file(filename)
                 return
 
         # === Guardar cabecera ===
@@ -235,6 +300,7 @@ def process_file(file_path: str):
         db.commit()
 
         print(f"💾 Factura {invoice.number} guardada con éxito ({len(items)} ítems)")
+        _remember_processed_file(filename)
 
         # === Enviar evento realtime ===
         created_timestamp = (
@@ -295,30 +361,29 @@ def _is_valid_invoice_file(filename: str) -> bool:
     return True
 
 
-def initial_scan():
+def initial_scan(force_refresh: bool = False):
     """Procesa archivos existentes al iniciar (solo nuevos)."""
-    print("🔍 Escaneo inicial de la carpeta de facturas...")
-    db = SessionLocal()
-    processed_files = {row[0] for row in db.query(Invoice.source_file).all()}
-    db.close()
+    print("🔍 Escaneo de la carpeta de facturas...")
 
     scheduled = 0
     skipped = 0
 
     try:
+        processed_files = _get_processed_files(force_refresh=force_refresh)
         files = [f for f in os.listdir(NETWORK_PATH) if _is_valid_invoice_file(f)]
         print(f"📂 Archivos encontrados: {len(files)}")
 
         for filename in files:
-            if filename not in processed_files:
-                file_path = os.path.join(NETWORK_PATH, filename)
-                schedule_file_processing(file_path)
-                scheduled += 1
-
-            else:
+            if filename in processed_files:
                 skipped += 1
                 print(f"⏩ Saltando {filename} (ya registrado)")
-        print("✅ Escaneo inicial completado.")
+                continue
+
+            file_path = os.path.join(NETWORK_PATH, filename)
+            schedule_file_processing(file_path)
+            scheduled += 1
+
+        print("✅ Escaneo completado.")
     except Exception as e:
         print(f"⚠️ Error en el escaneo inicial: {e}")
         return {
@@ -375,14 +440,18 @@ def start_file_monitor():
     """Inicia el monitoreo continuo de la carpeta de red."""
     print(f"👀 Monitoreando carpeta: {NETWORK_PATH}")
 
-    # Escaneo inicial
-    initial_scan()
+    # Escaneo inicial protegido para evitar solaparse con rescaneos manuales
     with _rescan_lock:
-        initial_scan()
+        initial_scan(force_refresh=True)
 
     # Monitor en tiempo real
     event_handler = InvoiceFileHandler()
     observer: Optional[PollingObserver] = None
+    next_periodic_rescan: Optional[float] = (
+        time.time() + PERIODIC_RESCAN_SECONDS
+        if PERIODIC_RESCAN_SECONDS > 0
+        else None
+    )
 
     while True:
         try:
@@ -398,6 +467,16 @@ def start_file_monitor():
                 observer.schedule(event_handler, NETWORK_PATH, recursive=False)
                 observer.start()
                 print("✅ Monitor de archivos activo (modo solo lectura)")
+                
+            if (
+                next_periodic_rescan is not None
+                and time.time() >= next_periodic_rescan
+            ):
+                with _rescan_lock:
+                    print("🔁 Re-escaneo periódico de facturas en curso...")
+                    initial_scan()
+                next_periodic_rescan = time.time() + PERIODIC_RESCAN_SECONDS
+
             time.sleep(5)
         except KeyboardInterrupt:
             if observer is not None:
@@ -413,6 +492,8 @@ def start_file_monitor():
                 except Exception:
                     pass
                 observer = None
+            if PERIODIC_RESCAN_SECONDS > 0:
+                next_periodic_rescan = time.time() + PERIODIC_RESCAN_SECONDS
             time.sleep(5)
 
 
@@ -420,6 +501,6 @@ def trigger_manual_rescan():
     """Permite lanzar un rescan desde la API sin bloquear el monitor."""
 
     with _rescan_lock:
-        result = initial_scan()
+        result = initial_scan(force_refresh=True)
 
     return result or {"scheduled": 0, "skipped": 0}

@@ -20,6 +20,10 @@ class Settings:
     INVOICE_PATH: str = os.getenv("INVOICE_PATH", r"\\192.168.32.100\unfe-pdv")
     INVOICE_FILE_PREFIX: str = os.getenv("INVOICE_FILE_PREFIX", "010012W")
     INVOICE_POLL_INTERVAL: float = float(os.getenv("INVOICE_POLL_INTERVAL", "2"))
+    INVOICE_CACHE_TTL_SECONDS: float = float(os.getenv("INVOICE_CACHE_TTL_SECONDS", "60"))
+    INVOICE_PERIODIC_RESCAN_SECONDS: float = float(
+        os.getenv("NVOICE_PERIODIC_RESCAN_SECONDS", "120")
+    )
     LOCAL_TIMEZONE: str = os.getenv("LOCAL_TIMEZONE", "America/Bogota")
 
     _cors_allowed_origins: str = os.getenv("CORS_ALLOWED_ORIGINS", "*")
