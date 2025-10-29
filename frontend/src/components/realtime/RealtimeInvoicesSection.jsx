@@ -16,6 +16,7 @@ export default function RealtimeInvoicesSection({
   activeFiltersCount,
   areFiltersOpen,
   onToggleFilters,
+  onCloseFilters,
   invoicesCountLabel,
   filters,
   onFilterChange,
@@ -42,6 +43,7 @@ export default function RealtimeInvoicesSection({
   currentPage,
   onPageChange,
   formatCurrency,
+  availableBranches,
 }) {
   return (
     <section className="grid gap-6 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1fr)]">
@@ -94,6 +96,7 @@ export default function RealtimeInvoicesSection({
             activeFiltersCount={activeFiltersCount}
             onReset={onResetFilters}
             onApply={onApplyFilters}
+            availableBranches={availableBranches}
           />
           <InvoiceList
             messages={messages}

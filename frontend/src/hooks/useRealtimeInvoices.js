@@ -1149,6 +1149,7 @@ export function useRealtimeInvoices() {
     paginationRange,
     currentPage,
     setCurrentPage,
+    availableBranches,
     dailySalesHistory,
   };
 }

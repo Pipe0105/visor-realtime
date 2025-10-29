@@ -35,6 +35,57 @@ const FilterCard = ({ title, description, children, className }) => (
   </section>
 );
 
+const BranchSelect = ({ branches, value, onChange }) => {
+  const options = useMemo(() => {
+    if (!Array.isArray(branches) || branches.length === 0) {
+      return [];
+    }
+    return branches.map((branch) => ({
+      label: branch.toUpperCase(),
+      value: branch,
+    }));
+  }, [branches]);
+
+  const hasBranches = options.length > 0;
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Sucursal
+      </label>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={onChange}
+          disabled={!hasBranches}
+          className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-4 py-3 text-base text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        >
+          <option value="all">Todas las sucursales</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-base text-slate-400">
+          ▾
+        </span>
+      </div>
+      {!hasBranches ? (
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          No hay sucursales detectadas todavía.
+        </p>
+      ) : (
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          {options.length === 1
+            ? "1 sucursal disponible"
+            : `${options.length} sucursales disponibles`}
+        </p>
+      )}
+    </div>
+  );
+};
+
 /* --- Dropdown moderno personalizado --- */
 const SortDropdown = ({ value, onChange }) => {
   const [open, setOpen] = useState(false);
@@ -94,7 +145,26 @@ export default function InvoiceFilters({
   onReset,
   onApply,
   onClose,
+  availableBranches = [],
 }) {
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0,
+      }),
+    []
+  );
+
+  const numberFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat("es-CO", {
+        maximumFractionDigits: 0,
+      }),
+    []
+  );
+
   useEffect(() => {
     if (!isOpen) return undefined;
 
@@ -133,11 +203,18 @@ export default function InvoiceFilters({
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
         onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invoice-filters-title"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+            <h2
+              id="invoice-filters-title"
+              className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300"
+            >
+              {" "}
               Panel de filtros
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -168,6 +245,17 @@ export default function InvoiceFilters({
             />
           </FilterCard>
 
+          <FilterCard
+            title="Sucursal"
+            description="Filtra por la tienda que emitió la factura."
+          >
+            <BranchSelect
+              branches={availableBranches}
+              value={filters.branch}
+              onChange={onFilterChange("branch")}
+            />
+          </FilterCard>
+
           <FilterCard title="Orden Actual">
             <SortDropdown
               value={filters.sortBy}
@@ -175,7 +263,13 @@ export default function InvoiceFilters({
             />
           </FilterCard>
 
-          <FilterCard title="Rango de montos">
+          <FilterCard
+            title="Rango de montos"
+            description={`Montos detectados entre ${currencyFormatter.format(
+              totalsRange?.min ?? 0
+            )} y ${currencyFormatter.format(totalsRange?.max ?? 0)}.`}
+          >
+            {" "}
             <div className="flex gap-3">
               <input
                 type="number"
@@ -194,7 +288,12 @@ export default function InvoiceFilters({
             </div>
           </FilterCard>
 
-          <FilterCard title="Cantidad de ítems">
+          <FilterCard
+            title="Cantidad de ítems"
+            description={`Historial entre ${numberFormatter.format(
+              itemsRange?.min ?? 0
+            )} y ${numberFormatter.format(itemsRange?.max ?? 0)} ítems.`}
+          >
             <div className="flex gap-3">
               <input
                 type="number"
@@ -215,20 +314,20 @@ export default function InvoiceFilters({
         </div>
 
         {/* Footer */}
-        <footer className="flex justify-between border-t border-slate-200 px-5 py-4 dark:border-slate-800">
+        <footer className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 dark:border-slate-800 sm:flex-row">
           <Button
             variant="outline"
             size="sm"
             onClick={onReset}
             disabled={activeFiltersCount === 0}
-            className="text-xs font-semibold uppercase tracking-wide"
+            className="w-full text-xs font-semibold uppercase tracking-[0.24em] sm:w-auto"
           >
             Limpiar
           </Button>
           <Button
             size="sm"
             onClick={onApply}
-            className="text-xs font-semibold uppercase tracking-wide"
+            className="w-full text-xs font-semibold uppercase tracking-[0.24em] sm:w-auto"
           >
             Aplicar filtros
           </Button>
