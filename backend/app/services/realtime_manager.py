@@ -34,7 +34,7 @@ class RealtimeManager:
     def _resolve_iso_timestamp(cls, message: dict) -> str:
         """Obtiene la marca de tiempo preferida para un mensaje."""
 
-        for key in ("timestamp", "created_at", "invoice_date", "issued_at"):
+        for key in ("invoice_date", "timestamp", "created_at", "issued_at"):
             resolved = cls._to_iso(message.get(key))
             if resolved:
                 return resolved
@@ -172,6 +172,12 @@ class RealtimeManager:
     async def broadcast(self, branch: str, message: dict):
         """Envía un mensaje JSON a todos los clientes de una sede y guarda solo los del día actual."""
         message["timestamp"] = self._resolve_iso_timestamp(message)
+        
+        message_day = self._message_date(message)
+        today = datetime.now().date()
+
+        if message_day and message_day != today:
+            return
 
         if branch not in self.daily_messages:
             self.daily_messages[branch] = []

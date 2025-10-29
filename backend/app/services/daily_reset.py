@@ -28,6 +28,8 @@ def ensure_daily_reset(db: Session) -> bool:
     """Guarda resúmenes diarios y elimina datos anteriores al día actual."""
 
     midnight_today_local = midnight_today()
+    date_source = func.coalesce(Invoice.invoice_date, Invoice.created_at)
+
 
     stale_exists = (
         db.query(Invoice.id)
@@ -56,7 +58,8 @@ def ensure_daily_reset(db: Session) -> bool:
             func.coalesce(func.sum(Invoice.total), 0).label("total_sales"),
             func.coalesce(func.sum(Invoice.subtotal), 0).label("total_net_sales"),
         )
-        .filter(Invoice.created_at < midnight_today_local)
+        .filter(date_source < midnight_today_local)
+
 
         .group_by(func.date_trunc("day", date_source), Invoice.branch_id)
         .all()
@@ -95,15 +98,15 @@ def ensure_daily_reset(db: Session) -> bool:
                 )
 
         stale_invoice_ids = select(Invoice.id).filter(
-            Invoice.created_at < midnight_today_local
+            date_source < midnight_today_local
         )
 
         db.query(InvoiceItem).filter(
             InvoiceItem.invoice_id.in_(stale_invoice_ids)
         ).delete(synchronize_session=False)
 
-        db.query(Invoice).filter(Invoice.created_at < midnight_today_local).delete(            synchronize_session=False
-        )
+        db.query(Invoice).filter(date_source < midnight_today_local).delete(
+            synchronize_session=False        )
 
         db.commit()
         return True

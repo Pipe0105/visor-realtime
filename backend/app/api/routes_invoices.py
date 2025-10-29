@@ -22,6 +22,9 @@ router = APIRouter()
 FIRST_CHUNK_INVOICES = 100
 DEFAULT_FORECAST_HISTORY_DAYS = 14
 
+def _invoice_datetime_source():
+    return func.coalesce(Invoice.invoice_date, Invoice.created_at)
+
 
 @router.get("/")
 def get_invoices(db: Session = Depends(get_db)):
@@ -148,7 +151,8 @@ def get_daily_sales(
     start_date = start_date_today - timedelta(days=max(days - 1, 0))
     start_date_only = start_date.date()
 
-    date_source = func.coalesce(Invoice.invoice_date, Invoice.created_at)
+    date_source = _invoice_datetime_source()
+
     day_expression = func.date_trunc("day", date_source)
 
     branch_filters = []
@@ -261,9 +265,11 @@ def get_today_invoices(
     ensure_daily_reset(db)
 
     _, today_start, tomorrow_start = current_local_day_bounds()
+    date_source = _invoice_datetime_source()
+
     filters = [
-        Invoice.created_at >= today_start,
-        Invoice.created_at < tomorrow_start,
+        date_source >= today_start,
+        date_source < tomorrow_start,
     ]
 
     (
@@ -303,7 +309,7 @@ def get_today_invoices(
             items_count_subquery.label("items_count"),
         )
         .filter(*filters)
-        .order_by(Invoice.created_at.desc())
+        .order_by(date_source.desc(), Invoice.created_at.desc())
         .offset(offset)
         .limit(limit)
         .all()
@@ -311,15 +317,17 @@ def get_today_invoices(
 
     invoices = []
     for row in invoice_rows:
+        created_at_iso = row.created_at.isoformat() if row.created_at else None
+        invoice_date_iso = row.invoice_date.isoformat() if row.invoice_date else None
+        primary_timestamp = invoice_date_iso or created_at_iso
         invoices.append(
             {
                 "invoice_number": row.number,
                 "total": float(row.total or 0),
                 "items": int(row.items_count or 0),
-                "timestamp": row.created_at.isoformat() if row.created_at else None,
-                "invoice_date": row.invoice_date.isoformat()
-                if row.invoice_date
-                else None,
+                "timestamp": primary_timestamp,
+                "created_at": created_at_iso,
+                "invoice_date": invoice_date_iso,
                 "branch": str(row.branch_id) if row.branch_id else "FLO",
             }
         )
@@ -488,6 +496,7 @@ def get_today_forecast(
         }
 
     now, today_start, tomorrow_start = current_local_day_bounds()
+    date_source = _invoice_datetime_source()
     current_day_elapsed_seconds = max(
         (now - today_start).total_seconds(),
         0.0,
@@ -535,7 +544,7 @@ def get_today_forecast(
     
     seconds_since_day_start = func.extract(
         "epoch",
-        Invoice.created_at - func.date_trunc("day", Invoice.created_at),
+        date_source - func.date_trunc("day", date_source),
 
     )
 
@@ -547,7 +556,8 @@ def get_today_forecast(
             func.row_number()
             .over(
                 partition_by=day_expression,
-                order_by=[Invoice.created_at.asc(), Invoice.id.asc()],
+                order_by=[date_source.asc(), Invoice.id.asc()],
+
             )
             .label("row_number"),
         )
@@ -712,7 +722,8 @@ def get_today_forecast(
     today_first_chunk_rows = (
         db.query(Invoice.total)
         .filter(*today_filters)
-        .order_by(Invoice.created_at.asc(), Invoice.id.asc())
+        .order_by(date_source.asc(), Invoice.id.asc())
+
         .limit(FIRST_CHUNK_INVOICES)
         .all()
     )
