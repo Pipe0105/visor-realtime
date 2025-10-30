@@ -56,7 +56,7 @@ export default function Header({ onToggleTheme, theme }) {
             size="sm"
             onClick={onToggleTheme}
             aria-pressed={theme === "dark"}
-            className=" hidden rounded-full border-slate-300 bg-white text-slate-700 shadow-none transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-foreground dark:hover:bg-slate-800/70"
+            className=" rounded-full border-slate-300 bg-white text-slate-700 shadow-none transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-foreground dark:hover:bg-slate-800/70"
           >
             {theme === "dark" ? "☀️" : "🌙"}
           </Button>

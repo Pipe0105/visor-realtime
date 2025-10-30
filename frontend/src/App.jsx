@@ -30,10 +30,24 @@ export default function App() {
   const [theme, setTheme] = useState(getInitialTheme);
 
   useEffect(() => {
-    // Fuerza siempre modo claro
-    document.documentElement.classList.remove("dark");
-    localStorage.setItem("theme", "light");
-  }, []);
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const root = document.documentElement;
+
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+
+    try {
+      window.localStorage.setItem("theme", theme);
+    } catch (error) {
+      console.warn("No se pudo guardar la preferencia de tema", error);
+    }
+  }, [theme]);
 
   const toggleTheme = () =>
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
