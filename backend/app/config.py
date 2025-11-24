@@ -1,8 +1,6 @@
 import os
 from typing import List
 from dotenv import load_dotenv
-from sqlalchemy.engine import URL
-
 
 # Load environment variables from .env file
 load_dotenv()
@@ -20,7 +18,7 @@ class Settings:
     DB_USER: str = os.getenv("DB_USER", "postgres")
     DB_PASS: str = os.getenv("DB_PASS", "1234")
     INVOICE_PATH: str = os.getenv("INVOICE_PATH", r"\\192.168.32.100\unfe-pdv")
-    INVOICE_FILE_PREFIX: str = os.getenv("INVOICE_FILE_PREFIX", "01001FL")
+    INVOICE_FILE_PREFIX: str = os.getenv("INVOICE_FILE_PREFIX", "010012W")
     INVOICE_POLL_INTERVAL: float = float(os.getenv("INVOICE_POLL_INTERVAL", "2"))
     INVOICE_PERIODIC_RESCAN_SECONDS: float = float(
         os.getenv("NVOICE_PERIODIC_RESCAN_SECONDS", "120")
@@ -32,23 +30,8 @@ class Settings:
 
     @property
     def DATABASE_URL(self):
-        """
-        Build a properly escaped PostgreSQL connection URL.
+        return f"postgresql://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
-        Using SQLAlchemy's URL object ensures usernames or passwords that contain
-        non-ASCII characters or URL-reserved characters are percent-encoded
-        before they are passed down to psycopg2, preventing UnicodeDecodeError
-        during connection initialization.
-        """
-
-        return URL.create(
-            drivername="postgresql+psycopg2",
-            username=self.DB_USER,
-            password=self.DB_PASS,
-            host=self.DB_HOST,
-            port=int(self.DB_PORT),
-            database=self.DB_NAME,
-        )
     @property
     def CORS_ALLOW_ALL(self) -> bool:
         return self._cors_allowed_origins.strip() == "*"

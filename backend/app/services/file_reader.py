@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import traceback
 import asyncio
@@ -316,29 +317,8 @@ def _is_valid_invoice_file(filename: str) -> bool:
     """Valida el nombre del archivo por extensión y prefijo."""
 
     name_upper = filename.upper()
-    prefixes = []
-    for raw_prefix in FILE_PREFIX.split(","):
-        prefix = raw_prefix.strip().upper()
-        if not prefix:
-            continue
-
-        prefixes.append(prefix)
-
-        numeric_prefix = "".join(ch for ch in prefix if ch.isdigit())
-        if numeric_prefix and numeric_prefix != prefix:
-            prefixes.append(numeric_prefix)
-
-    if prefixes and not any(name_upper.startswith(pfx) for pfx in prefixes):
+    if not name_upper.startswith(FILE_PREFIX):
         return False
-
-    base, ext = os.path.splitext(name_upper)
-    if ext != ".XML":
-        return False
-
-    if base.endswith(".XML"):
-        return False
-
-    return True
 
 
 def initial_scan(force_refresh: bool = False):
