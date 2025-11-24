@@ -18,7 +18,7 @@ class Settings:
     DB_USER: str = os.getenv("DB_USER", "postgres")
     DB_PASS: str = os.getenv("DB_PASS", "1234")
     INVOICE_PATH: str = os.getenv("INVOICE_PATH", r"\\192.168.32.100\unfe-pdv")
-    INVOICE_FILE_PREFIX: str = os.getenv("INVOICE_FILE_PREFIX", "010012W")
+    INVOICE_FILE_PREFIX: str = os.getenv("INVOICE_FILE_PREFIX", "01001FL")
     INVOICE_POLL_INTERVAL: float = float(os.getenv("INVOICE_POLL_INTERVAL", "2"))
     INVOICE_PERIODIC_RESCAN_SECONDS: float = float(
         os.getenv("NVOICE_PERIODIC_RESCAN_SECONDS", "120")
