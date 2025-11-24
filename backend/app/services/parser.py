@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Union
 import xml.etree.ElementTree as ET
 
+
 NS = {
     "cbc": "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2",
     "cac": "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
